@@ -17,7 +17,7 @@ Last updated 2026-11-10. Covers the Proxmox host rebuilt on 2026-11-08 and the L
 - Intel iGPU: in-kernel i915. `renderD128` = Intel, `card1` = Intel.
 - NVIDIA RTX 3070 Ti: driver **620.70.06**, open kernel modules via DKMS. nouveau blacklisted, `nvidia-persistenced` on, `/etc/modules-load.d/nvidia.conf`, udev rule `70-nvidia.rules`. `renderD129` = NVIDIA.
 - The installer is kept at `/root/nvidia` for installing the matching userspace driver in LXCs (`--no-kernel-module`).
-- **If the host NVIDIA driver is updated, reinstall the same version in CT 103 (Plex), CT 104 (Tdarr) and CT 105 (Immich).**
+- **If the host NVIDIA driver is updated, reinstall the same version in CT 103 (Plex), CT 104 (Tdarr), CT 105 (Immich) and CT 107 (Tunarr).**
 
 ### Network shares (PVE storages)
 
@@ -41,6 +41,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 104 | tdarr | 192.168.4.127:8265 | Both GPUs, /unraid + /nas |
 | 105 | immich | 192.168.4.163:2283 | Both GPUs, /unraid |
 | 106 | tautulli | 192.168.4.113:8181 (DHCP reserved) | Plex stats, no GPU or shares |
+| 107 | tunarr | 192.168.4.235:8000 | Live TV channels for Plex, both GPUs |
 
 ### CT 103 Plex
 
@@ -106,3 +107,13 @@ Installed 2026-11-10 with the Tautulli helper script, defaults kept.
 - Web UI: `http://192.168.4.113:8181`. Service: `systemctl status tautulli`. Config: `/opt/Tautulli/config.ini`.
 - Setup wizard: sign in with Plex, server `homelab-1` at 192.168.4.120:32400, SSL off.
 - Check: `curl http://192.168.4.120:32400/identity` from inside the CT returns 200.
+
+### CT 107 Tunarr
+
+Installed 2026-11-10 with the Tunarr helper script (Tunarr 2026.11.2), hardware acceleration set to "all GPUs".
+
+- Both GPUs. Intel: iHD driver, VAAPI/QSV (`vainfo --display drm --device /dev/dri/renderD128`). NVIDIA: 620.70.06 userspace libs from NVIDIA's CUDA apt repo (no `nvidia-smi` in the CT, NVENC works).
+- net0: vmbr0, DHCP, MAC `BC:24:11:03:6F:D4`, IP 192.168.4.235. Reserve it in OPNsense.
+- Web UI: `http://192.168.4.235:8000` (redirects to `/web`). Service: `systemctl status tunarr`. Binary: `/opt/tunarr/tunarr`.
+- Plex: Settings → Media Sources → add Plex (sign in), server 192.168.4.120:32400. Then add Tunarr as a DVR tuner in Plex Live TV.
+- **Install quirks:** the helper script failed at `mv tunarr* tunarr` (the file already had that name) and would have failed again fetching a `gpl-7.1` ffmpeg. The rest was finished by hand: ErsatzTV-ffmpeg `ffmpeg-n8.1.2-etv.8-linux64-gpl-8.1.tar.xz` (SHA256 checked), linked to `/usr/bin/ffmpeg` and `/usr/bin/ffprobe` (no ffplay), and the upstream `tunarr.service` enabled. The helper's update command may not recognize this ffmpeg build, so check ffmpeg after updating.
