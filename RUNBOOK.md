@@ -40,7 +40,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 103 | plex | 192.168.4.120 | Both GPUs, /unraid + /nas |
 | 104 | tdarr | 192.168.4.127:8265 | Both GPUs, /unraid + /nas |
 | 105 | immich | 192.168.4.163:2283 | Both GPUs, /unraid |
-| 106 | tautulli | 192.168.4.113:8181 | Plex stats, no GPU or shares |
+| 106 | tautulli | 192.168.4.113:8181 (DHCP reserved) | Plex stats, no GPU or shares |
 
 ### CT 103 Plex
 
@@ -102,7 +102,7 @@ Installed 2026-11-10 with the Tautulli helper script, defaults kept.
 
 - Unprivileged, 2 cores / 1 GB RAM / 512 MB swap, 4 GB disk on local-lvm, `nesting=1,keyctl=1`, starts on boot.
 - No GPU and no mountpoints. It only talks to the Plex API.
-- net0: vmbr0, DHCP, MAC `BC:24:11:FB:C4:09`, IP 192.168.4.113. Add a DHCP reservation in OPNsense to keep the IP.
+- net0: vmbr0, DHCP, MAC `BC:24:11:FB:C4:09`, IP 192.168.4.113, reserved in OPNsense.
 - Web UI: `http://192.168.4.113:8181`. Service: `systemctl status tautulli`. Config: `/opt/Tautulli/config.ini`.
 - Setup wizard: sign in with Plex, server `homelab-1` at 192.168.4.120:32400, SSL off.
 - Check: `curl http://192.168.4.120:32400/identity` from inside the CT returns 200.
