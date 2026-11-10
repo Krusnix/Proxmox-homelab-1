@@ -17,7 +17,7 @@ Last updated 2026-11-10. Covers the Proxmox host rebuilt on 2026-11-08 and the L
 - Intel iGPU: in-kernel i915. `renderD128` = Intel, `card1` = Intel.
 - NVIDIA RTX 3070 Ti: driver **620.70.06**, open kernel modules via DKMS. nouveau blacklisted, `nvidia-persistenced` on, `/etc/modules-load.d/nvidia.conf`, udev rule `70-nvidia.rules`. `renderD129` = NVIDIA.
 - The installer is kept at `/root/nvidia` for installing the matching userspace driver in LXCs (`--no-kernel-module`).
-- **If the host NVIDIA driver is updated, reinstall the same version in CT 103 (Plex), CT 104 (Tdarr) and CT 105 (Immich).**
+- **If the host NVIDIA driver is updated, reinstall the same version in CT 103 (Plex), CT 104 (Tdarr), CT 105 (Immich) and CT 107 (Tunarr).**
 
 ### Network shares (PVE storages)
 
@@ -36,11 +36,19 @@ All installed with the Proxmox community helper scripts, then configured by hand
 |---|---|---|---|
 | 100 | pve-scripts-local | 192.168.4.102 (DHCP reserved) | Helper-script web UI |
 | 101 | pve-ups | 192.168.4.205 (DHCP reserved) | UPS monitoring |
-| 102 | pihole | 192.168.4.145 | Pi-hole + Unbound on 5335 (DoT to 8.8.8.8/8.8.4.4) |
+| 102 | pihole | 192.168.4.145 | Pi-hole + Unbound on 5335 (DoT to 8.8.8.8/8.8.4.4), nebula-sync primary |
 | 103 | plex | 192.168.4.120 | Both GPUs, /unraid + /nas |
 | 104 | tdarr | 192.168.4.127:8265 | Both GPUs, /unraid + /nas |
 | 105 | immich | 192.168.4.163:2283 | Both GPUs, /unraid |
 | 106 | tautulli | 192.168.4.113:8181 (DHCP reserved) | Plex stats, no GPU or shares |
+| 107 | tunarr | 192.168.4.235:8000 | Live TV channels for Plex, both GPUs |
+
+### CT 102 Pi-hole and nebula-sync
+
+- One of 4 Pi-holes (.145, .48, .5.53 on Unraid as docker `pihole-v6-unbound`, .141), all v6 with Unbound on `127.0.0.1#5335`.
+- nebula-sync 0.11.3 (installed 2026-11-10) runs in CT 102 hourly and pushes to the other three. Config: `/etc/nebula-sync.env`. It uses selective sync with every section on **except the web server** (full mode would move .141's UI to port 80, where Apache runs). It excludes `misc.dnsmasq_lines` (the API can't write it) and `dns.dnssec` (missing on .141's older build). `CLIENT_SKIP_TLS_VERIFICATION=true` for .141's self-signed cert. Logs: `journalctl -u nebula-sync`.
+- **plex.direct:** Unbound's `private-address` rules blank `*.plex.direct` answers, which breaks Plex sign-in for apps like Tunarr. Each Pi-hole has `misc.dnsmasq_lines` = `server=/plex.direct/1.1.1.1`, `server=/plex.direct/9.9.9.9`, set by hand on each (`pihole-FTL --config misc.dnsmasq_lines '[...]'`; on Unraid via the `FTLCONF_misc_dnsmasq_lines` template variable, `;`-separated). A rebuilt Pi-hole needs it again.
+- Teleporter backups of all four from 2026-11-10: `/root/pihole-backups-2026-11-10/` in CT 102.
 
 ### CT 103 Plex
 
@@ -106,3 +114,13 @@ Installed 2026-11-10 with the Tautulli helper script, defaults kept.
 - Web UI: `http://192.168.4.113:8181`. Service: `systemctl status tautulli`. Config: `/opt/Tautulli/config.ini`.
 - Setup wizard: sign in with Plex, server `homelab-1` at 192.168.4.120:32400, SSL off.
 - Check: `curl http://192.168.4.120:32400/identity` from inside the CT returns 200.
+
+### CT 107 Tunarr
+
+Installed 2026-11-10 with the Tunarr helper script (Tunarr 2026.11.2), hardware acceleration set to "all GPUs".
+
+- Both GPUs. Intel: iHD driver, VAAPI/QSV (`vainfo --display drm --device /dev/dri/renderD128`). NVIDIA: 620.70.06 userspace libs from NVIDIA's CUDA apt repo (no `nvidia-smi` in the CT, NVENC works).
+- net0: vmbr0, DHCP, MAC `BC:24:11:03:6F:D4`, IP 192.168.4.235. Reserve it in OPNsense.
+- Web UI: `http://192.168.4.235:8000` (redirects to `/web`). Service: `systemctl status tunarr`. Binary: `/opt/tunarr/tunarr`.
+- Plex: Settings → Media Sources → add Plex (sign in), server 192.168.4.120:32400. Then add Tunarr as a DVR tuner in Plex Live TV.
+- **Install quirks:** the helper script failed at `mv tunarr* tunarr` (the file already had that name) and would have failed again fetching a `gpl-7.1` ffmpeg. The rest was finished by hand: ErsatzTV-ffmpeg `ffmpeg-n8.1.2-etv.8-linux64-gpl-8.1.tar.xz` (SHA256 checked), linked to `/usr/bin/ffmpeg` and `/usr/bin/ffprobe` (no ffplay), and the upstream `tunarr.service` enabled. The helper's update command may not recognize this ffmpeg build, so check ffmpeg after updating.
