@@ -137,4 +137,4 @@ Installed 2026-11-10 with the Kometa helper script (Kometa 2.5.4), defaults kept
 - Services: `kometa.service` (waits and runs daily at 05:00) and `kometa-quickstart.service` (config builder web UI at `http://192.168.4.213:7171`).
 - Config: `plex.url` is `http://192.168.4.120:32400`, with the Plex token and TMDb key set. Plex libraries are Movies, TV Shows, Music, Photos and Youtube. Tautulli for Kometa is `http://192.168.4.113:8181`, and its API key is in CT 106 `/opt/Tautulli/config.ini`.
 - One-off run: `cd /opt/kometa && .venv/bin/python kometa.py --run`.
-- **Status 2026-11-10:** the config was still the helper template, with an Anime library that doesn't exist, a missing `Music.yml`, and Radarr/Sonarr/Tautulli/notifier sections pointing at 192.168.1.12. Trent plans to configure it himself.
+- **Status 2026-11-10:** the config was still the helper template, with an Anime library that doesn't exist, a missing `Music.yml`, and Radarr/Sonarr/Tautulli/notifier sections pointing at 192.168.1.12. Trent will configure it later.
