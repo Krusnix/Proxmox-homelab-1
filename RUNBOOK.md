@@ -52,25 +52,39 @@ install -m 600 /dev/null /etc/rsync-terramaster.pass   # then put the rsync pass
 cat > /usr/local/bin/vzdump-rsync.sh <<'EOS'
 #!/bin/bash
 # vzdump hook: mirror local backups to the TerraMaster after the job ends.
+# Sends an ntfy alert if the copy is skipped or fails.
 [ "$1" = "job-end" ] || exit 0
+NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+LOG=/var/log/vzdump-rsync.log
 SRC=/mnt/backup-local/dump/
-mountpoint -q /mnt/backup-local || { echo "backup-local not mounted, skipping sync"; exit 1; }
-[ -n "$(ls -A "$SRC" 2>/dev/null)" ] || { echo "$SRC is empty, skipping sync"; exit 1; }
-echo "$(date '+%F %T') sync start" >> /var/log/vzdump-rsync.log
+alert() {
+  curl -fsS -m 15 -H "Title: homelab1 backup copy to TerraMaster failed" \
+    -H "Priority: high" -H "Tags: floppy_disk" -d "$1" "$NTFY" >/dev/null \
+    || echo "$(date '+%F %T') ntfy alert failed" >> "$LOG"
+}
+if ! mountpoint -q /mnt/backup-local; then
+  echo "backup-local not mounted, skipping sync"; alert "backup-local is not mounted, so nothing was copied."; exit 1
+fi
+if [ -z "$(ls -A "$SRC" 2>/dev/null)" ]; then
+  echo "$SRC is empty, skipping sync"; alert "$SRC is empty, so nothing was copied."; exit 1
+fi
+echo "$(date '+%F %T') sync start" >> "$LOG"
 rsync -rt --delete --password-file=/etc/rsync-terramaster.pass \
-  "$SRC" rsync://krusnix@192.168.4.180/proxmox-homelab-backup/dump/ >> /var/log/vzdump-rsync.log 2>&1
+  "$SRC" rsync://krusnix@192.168.4.180/proxmox-homelab-backup/dump/ >> "$LOG" 2>&1
 rc=$?
-echo "$(date '+%F %T') sync end rc=$rc" >> /var/log/vzdump-rsync.log
+echo "$(date '+%F %T') sync end rc=$rc" >> "$LOG"
+[ $rc -eq 0 ] || alert "rsync exited with code $rc. Last log lines:
+$(tail -n 5 "$LOG")"
 exit $rc
 EOS
 chmod 755 /usr/local/bin/vzdump-rsync.sh
 
 pvesh create /cluster/backup --id nightly-cts --schedule "01:00" --all 1 --storage backup-local \
   --mode snapshot --compress zstd --prune-backups keep-daily=3 --notes-template "{{guestname}}" \
-  --script /usr/local/bin/vzdump-rsync.sh --enabled 1
+  --script /usr/local/bin/vzdump-rsync.sh --notification-mode notification-system --enabled 1
 ```
 
-The guards in the script stop `--delete` from wiping the TerraMaster copy if the local volume is missing or empty. A failed sync makes the job fail, so it shows up in the task log and the mail-to-root notification.
+The guards in the script stop `--delete` from wiping the TerraMaster copy if the local volume is missing or empty. A failed or skipped sync sends its own ntfy alert and also makes the job fail, so it shows up in the task log and the Proxmox notification too (you may get two pings for one failure). Alerts were added 2026-11-11; see [ntfy alerts](#ntfy-alerts-proxmox-backups-ups).
 
 Restore after a host rebuild: pull the files back with `rsync -rt --password-file=/etc/rsync-terramaster.pass rsync://krusnix@192.168.4.180/proxmox-homelab-backup/dump/ /mnt/backup-local/dump/`, then `pct restore <ctid> /mnt/backup-local/dump/vzdump-lxc-<ctid>-<date>.tar.zst --storage local-lvm` (or pick the backup under backup-local → Backups in the UI). Afterwards, check the container's bind mounts and CT 104's `/tdarr_cache` disk. Their contents aren't in the archive, so re-add any that are missing from the restored config.
 
@@ -105,7 +119,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | CT | Name | IP | Notes |
 |---|---|---|---|
 | 100 | pve-scripts-local | 192.168.4.102 (DHCP reserved) | Helper-script web UI |
-| 101 | pve-ups | 192.168.4.205 (DHCP reserved) | UPS monitoring |
+| 101 | pve-ups | 192.168.4.205:8080 (DHCP reserved) | PVE-UPS: UPS alerts via NUT on 192.168.4.141 |
 | 102 | pihole | 192.168.4.145 | Pi-hole + Unbound on 5335 (DoT to 8.8.8.8/8.8.4.4), nebula-sync primary |
 | 103 | plex | 192.168.4.120 | Both GPUs, /unraid + /nas |
 | 104 | tdarr | 192.168.4.127:8265 | Both GPUs, /unraid + /nas |
@@ -232,3 +246,27 @@ Added 2026-11-11 after Tdarr (CT 104) ran out of memory unnoticed. Both installe
   - HTTP monitors: Proxmox `https://192.168.4.209:8006` (ignore TLS), Plex `http://192.168.4.120:32400/identity`, Tdarr `:8265`, Immich `http://192.168.4.163:2283/api/server/ping`, Tautulli `:8181`, Tunarr `:8000`, Kometa `:7171`, Beszel `:8090`.
   - DNS monitors (resolve google.com): Pi-holes 192.168.4.145, 192.168.4.48, 192.168.5.53, 192.168.4.141.
   - Ping monitors: OPNsense 192.168.4.1, Unraid 192.168.5.14, TerraMaster 192.168.4.180, pve-ups 192.168.4.205.
+
+### ntfy alerts: Proxmox, backups, UPS
+
+Added 2026-11-11. Same phone topic as Beszel and Uptime Kuma: `homelab1-alerts-3d1ef2b124a1` on `https://ntfy.sh`.
+
+- **Backup copy to TerraMaster:** the hook script `/usr/local/bin/vzdump-rsync.sh` (above) curls ntfy when the sync is skipped (volume unmounted or empty) or rsync fails, with the last log lines.
+- **Proxmox notifications** (Datacenter → Notifications): webhook target `ntfy` and matcher `ntfy-problems`. The matcher sends anything with severity warning or error (backup job failures, replication, fencing) plus all `system-mail` (smartd disk warnings and other mail to root) to ntfy. Successful backups and package-update notices stay on mail-to-root only. Job `nightly-cts` uses `notification-mode notification-system`.
+
+  ```bash
+  b64() { printf '%s' "$1" | base64 -w0; }
+  pvesh create /cluster/notifications/endpoints/webhook --name ntfy --method post \
+    --url https://ntfy.sh/homelab1-alerts-3d1ef2b124a1 \
+    --header "name=Title,value=$(b64 '{{ title }}')" \
+    --header "name=Tags,value=$(b64 'proxmox,{{ severity }}')" \
+    --header "name=Priority,value=$(b64 'high')" \
+    --body "$(b64 '{{ message }}')" --comment "ntfy phone alerts"
+  pvesh create /cluster/notifications/matchers --name ntfy-problems --target ntfy --mode any \
+    --match-severity warning,error --match-field exact:type=system-mail \
+    --comment "warnings, errors, SMART/system mail to ntfy"
+  pvesh set /cluster/backup/nightly-cts --notification-mode notification-system
+  pvesh create /cluster/notifications/targets/ntfy/test   # sends a test ping
+  ```
+
+- **UPS:** CT 101 runs PVE-UPS ([ffind-dev/pve-ups](https://github.com/ffind-dev/pve-ups), service `pve-usv`, web UI `http://192.168.4.205:8080`, config `/etc/pve-usv/config.yaml`). It is not NUT itself. It reads the CyberPower UPS from the NUT server at `192.168.4.141:3493`, UPS name `cyberpower`, no login (the UPS's USB cable goes to that box). Settings: UPS device Read via NUT with those values; Notifications → webhook format ntfy, URL `https://ntfy.sh/homelab1-alerts-3d1ef2b124a1`, severity warning and above. The ntfy webhook is only set here, not on plex-proxmox's PVE-UPS (which reads the same UPS), to avoid double alerts.
