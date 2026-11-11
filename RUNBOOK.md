@@ -28,6 +28,52 @@ Last updated 2026-11-11. Covers the Proxmox host rebuilt on 2026-11-08 and the L
 
 Both are mounted with `uid=100000,gid=110000`, mode 0775. Inside unprivileged LXCs, create group `nasshare` with gid **10000** (maps to host gid 110000) and add the service user to it.
 
+### Backups (nightly vzdump + rsync to TerraMaster)
+
+Set up 2026-11-10. Each container is backed up to a local volume every night, and a hook script then copies that folder to the TerraMaster over rsync. Nothing is written over the SMB share.
+
+- **Local volume:** 200 GB thin LV `pve/backup-local` (ext4) mounted at `/mnt/backup-local` (fstab: `/dev/pve/backup-local /mnt/backup-local ext4 defaults,discard 0 2`). PVE storage `backup-local` (dir, content `backup`, `is_mountpoint yes`).
+- **Job `nightly-cts`** (Datacenter → Backup): 01:00 daily, all guests, snapshot mode, zstd, `keep-daily=3`, notes `{{guestname}}`, hook `--script /usr/local/bin/vzdump-rsync.sh`.
+- **What's skipped:** bind mounts (`/unraid`, `/nas`) are never included, and CT 104's `/tdarr_cache` is `backup=0`. Only container disks are backed up.
+- **Off-box copy:** TerraMaster (192.168.4.180) rsync module `proxmox-homelab-backup` (no "s"), account `krusnix`, password in `/etc/rsync-terramaster.pass` (mode 600, password only). The sync uses `--delete`, so the TerraMaster keeps the same 3 nights as the local disk (TerraMaster SSH is off, so nothing can prune there separately). Log: `/var/log/vzdump-rsync.log`. The other modules (`proxmox-plex-backup`, `unraid-backups`) belong to other machines; don't sync into them.
+- Size reference: CT 106 Tautulli = 333 MB compressed (1.1 GB raw).
+
+Rebuild:
+
+```bash
+lvcreate -V 200G -T pve/data -n backup-local
+mkfs.ext4 -L backup-local /dev/pve/backup-local
+mkdir -p /mnt/backup-local
+echo '/dev/pve/backup-local /mnt/backup-local ext4 defaults,discard 0 2' >> /etc/fstab
+systemctl daemon-reload && mount /mnt/backup-local
+pvesm add dir backup-local --path /mnt/backup-local --content backup --is_mountpoint yes
+install -m 600 /dev/null /etc/rsync-terramaster.pass   # then put the rsync password in it
+
+cat > /usr/local/bin/vzdump-rsync.sh <<'EOS'
+#!/bin/bash
+# vzdump hook: mirror local backups to the TerraMaster after the job ends.
+[ "$1" = "job-end" ] || exit 0
+SRC=/mnt/backup-local/dump/
+mountpoint -q /mnt/backup-local || { echo "backup-local not mounted, skipping sync"; exit 1; }
+[ -n "$(ls -A "$SRC" 2>/dev/null)" ] || { echo "$SRC is empty, skipping sync"; exit 1; }
+echo "$(date '+%F %T') sync start" >> /var/log/vzdump-rsync.log
+rsync -rt --delete --password-file=/etc/rsync-terramaster.pass \
+  "$SRC" rsync://krusnix@192.168.4.180/proxmox-homelab-backup/dump/ >> /var/log/vzdump-rsync.log 2>&1
+rc=$?
+echo "$(date '+%F %T') sync end rc=$rc" >> /var/log/vzdump-rsync.log
+exit $rc
+EOS
+chmod 755 /usr/local/bin/vzdump-rsync.sh
+
+pvesh create /cluster/backup --id nightly-cts --schedule "01:00" --all 1 --storage backup-local \
+  --mode snapshot --compress zstd --prune-backups keep-daily=3 --notes-template "{{guestname}}" \
+  --script /usr/local/bin/vzdump-rsync.sh --enabled 1
+```
+
+The guards in the script stop `--delete` from wiping the TerraMaster copy if the local volume is missing or empty. A failed sync makes the job fail, so it shows up in the task log and the mail-to-root notification.
+
+Restore after a host rebuild: pull the files back with `rsync -rt --password-file=/etc/rsync-terramaster.pass rsync://krusnix@192.168.4.180/proxmox-homelab-backup/dump/ /mnt/backup-local/dump/`, then `pct restore <ctid> /mnt/backup-local/dump/vzdump-lxc-<ctid>-<date>.tar.zst --storage local-lvm` (or pick the backup under backup-local → Backups in the UI). Afterwards, check the container's bind mounts and CT 104's `/tdarr_cache` disk. Their contents aren't in the archive, so re-add any that are missing from the restored config.
+
 ### Tailscale
 
 Set up 2026-11-10, copied from how plex-proxmox does it.
