@@ -277,7 +277,7 @@ Added 2026-11-11 (second batch). Same topic `homelab1-alerts-3d1ef2b124a1`. Fail
 
 **Tdarr and Immich (poller on the Proxmox host).** Neither app can push to ntfy itself, so a cron job on the host reads their APIs every 10 minutes and pings when the failed count goes up (Tdarr transcode errors, Immich failed jobs) or the Tdarr queue drops to 0.
 
-1. API keys. Tdarr: Tools → API Keys → create one. Immich: account menu → Account Settings → API Keys → new key for admin `krusnix` with the `job.read` / `queue.read` permissions (or "all").
+1. API keys. Tdarr: Tools → API Keys → create one. Immich: account menu → Account Settings → API Keys → new key for admin `krusnix`, name `ntfy-checks`, with only `job.read` (and `queue.read` if listed) ticked.
 2. Check the APIs answer before installing (both should print JSON):
 
    ```bash
@@ -287,6 +287,7 @@ Added 2026-11-11 (second batch). Same topic `homelab1-alerts-3d1ef2b124a1`. Fail
      http://192.168.4.127:8265/api/v2/cruddb | jq '{table1Count, table3Count}'
    curl -s -H "x-api-key: <immich key>" http://192.168.4.163:2283/api/queues | jq '[.. | .failed? | numbers] | add'
    # if /api/queues gives 404, try /api/jobs
+   # Checked 2026-11-11: Tdarr returned table1Count 1606 / table3Count 69, Immich /api/queues returned 52 failed.
    ```
 
 3. Keys go in `/root/.ntfy-checks.env` (`chmod 600`):
