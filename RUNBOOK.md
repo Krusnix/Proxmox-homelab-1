@@ -66,7 +66,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 105 | immich | 192.168.4.163:2283 | Both GPUs, /unraid |
 | 106 | tautulli | 192.168.4.113:8181 (DHCP reserved) | Plex stats, no GPU or shares |
 | 107 | tunarr | 192.168.4.235:8000 | Live TV channels for Plex, both GPUs |
-| 108 | kometa | 192.168.4.213 (DHCP, reserve it) | Plex collections/overlays, no GPU or shares |
+| 108 | kometa | 192.168.4.213 (DHCP reserved) | Plex collections/overlays, no GPU or shares |
 
 ### CT 102 Pi-hole and nebula-sync
 
@@ -158,7 +158,7 @@ Installed 2026-11-10 with the Kometa helper script (Kometa 2.5.4), defaults kept
 
 - Unprivileged, 2 cores / 4 GB RAM / 512 MB swap, 8 GB disk on local-lvm, starts on boot.
 - No GPU and no mountpoints. It only talks to the Plex and TMDb APIs.
-- net0: vmbr0, DHCP, MAC `BC:24:11:45:7C:EF`, IP 192.168.4.213. Reserve it in OPNsense.
+- net0: vmbr0, DHCP, MAC `BC:24:11:45:7C:EF`, IP 192.168.4.213, reserved in OPNsense.
 - Install: `/opt/kometa` (Python venv in `.venv`, version in `/opt/kometa/VERSION`). Config: `/opt/kometa/config/config.yml`, logs in `/opt/kometa/config/logs/`.
 - Services: `kometa.service` (waits and runs daily at 05:00) and `kometa-quickstart.service` (config builder web UI at `http://192.168.4.213:7171`).
 - Config: `plex.url` is `http://192.168.4.120:32400`, with the Plex token and TMDb key set. Plex libraries are Movies, TV Shows, Music, Photos and Youtube. Tautulli for Kometa is `http://192.168.4.113:8181`, and its API key is in CT 106 `/opt/Tautulli/config.ini`.
