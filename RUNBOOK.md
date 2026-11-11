@@ -98,8 +98,8 @@ Installed 2026-11-10 with the Immich helper script (Immich 3.3.6).
 
 ```
 cores: 4
-memory: 6144
-swap: 512
+memory: 8192   # raised from 6144 on 2026-11-10 for CPU AV1 transcodes
+swap: 1024
 unprivileged: 1
 features: nesting=1,keyctl=1
 rootfs: local-lvm:vm-105-disk-0,size=50G
@@ -128,7 +128,7 @@ onboot: 1
 - External library "krusnix": import path `/unraid/media/pictures` (34,618 assets, 1,299 videos at first scan). Exclusions: `**/@eaDir/**`, `**/._*`, `**/#recycle/**`, `**/#snapshot/**`, `**/.stversions/**`, `**/.stfolder/**` and **`**/immich/**`**. The last one matters: phone uploads land in `/unraid/media/pictures/immich`, which is inside the import path, so without it every upload is indexed twice.
 - Storage template on: `{{y}}/{{MM}}/{{dd}}/{{filename}}` (applies to uploads only, not the external library).
 - Video transcoding (Administration → Settings → Video Transcoding): Acceleration API **NVENC**, target codec **AV1**, accepted codecs AV1, hardware decoding off. **Neither GPU can encode AV1** (3070 Ti Laptop is Ampere, the Alder Lake iGPU has no AV1 encode), so Immich falls back to software `libsvtav1` on the CPU. Trent kept AV1 on purpose, same as Tdarr.
-- Side effect: each CPU AV1 transcode uses 1-5 GB of RAM. On 2026-11-10 the initial backlog pinned CT 105 at its 6 GB limit with swap full, and ffmpeg was OOM-killed (24 kills; Immich restarts the job on its own). If that becomes a problem, either `pct set 105 -memory 8192 -swap 1024`, or switch the target to HEVC/H.264 (NVENC can encode those) with AV1, HEVC and H.264 accepted.
+- Side effect: each CPU AV1 transcode uses 1-5 GB of RAM. On 2026-11-10 the initial backlog pinned CT 105 at its original 6 GB limit with swap full, and ffmpeg was OOM-killed (24 kills; Immich restarts the job on its own). Fixed the same evening with `pct set 105 -memory 8192 -swap 1024` (live, no reboot); no OOM kills since. If they come back, the host has room for 12 GB, or switch the target to HEVC/H.264 (NVENC can encode those) with AV1, HEVC and H.264 accepted.
 - Proxmox's "Memory usage" figure leaves out page cache, so it can show ~50% while the container is really at its limit. Check `cat /sys/fs/cgroup/lxc/105/memory.events` on the host for `oom_kill`.
 - Machine learning runs the OpenVINO build (Intel iGPU or CPU). NVIDIA for ML would need the CUDA build of immich-ml.
 
