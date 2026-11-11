@@ -113,6 +113,8 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 106 | tautulli | 192.168.4.113:8181 (DHCP reserved) | Plex stats, no GPU or shares |
 | 107 | tunarr | 192.168.4.235:8000 | Live TV channels for Plex, both GPUs |
 | 108 | kometa | 192.168.4.213 (DHCP reserved) | Plex collections/overlays, no GPU or shares |
+| 109 | beszel | 192.168.4.217:8090 (DHCP reserved) | Resource monitoring hub (CPU/memory/disk alerts) |
+| 110 | uptimekuma | 192.168.4.134:3001 (DHCP reserved) | Service up/down checks |
 
 ### CT 102 Pi-hole and nebula-sync
 
@@ -214,3 +216,19 @@ Installed 2026-11-10 with the Kometa helper script (Kometa 2.5.4), defaults kept
 - Config: `plex.url` is `http://192.168.4.120:32400`, with the Plex token and TMDb key set. Plex libraries are Movies, TV Shows, Music, Photos and Youtube. Tautulli for Kometa is `http://192.168.4.113:8181`, and its API key is in CT 106 `/opt/Tautulli/config.ini`.
 - One-off run: `cd /opt/kometa && .venv/bin/python kometa.py --run`.
 - **Status 2026-11-10:** the config was still the helper template, with an Anime library that doesn't exist, a missing `Music.yml`, and Radarr/Sonarr/Tautulli/notifier sections pointing at 192.168.1.12. Trent will configure it later.
+
+### Monitoring: CT 109 Beszel and CT 110 Uptime Kuma
+
+Added 2026-11-11 after Tdarr (CT 104) ran out of memory unnoticed. Both installed with helper scripts, defaults kept, and covered by the nightly vzdump backups.
+
+- **Alerts** go to the ntfy app on Trent's phone, topic `homelab1-alerts-3d1ef2b124a1` on `https://ntfy.sh` (no account). Both tools send to it.
+- **CT 109 Beszel** (`http://192.168.4.217:8090`), MAC `BC:24:11:4B:96:99`, reserved in OPNsense.
+  - Notifications: Settings → Notifications → Webhook URL `ntfy://ntfy.sh/homelab1-alerts-3d1ef2b124a1`.
+  - Agents (Add System → **Binary** tab → "Copy Linux command", listen port 45876) on the host `homelab1-proxmox` (192.168.4.209), Plex (.120), Tdarr (.127) and Immich (.163). For a CT, run the command inside it: `pct enter <id>` then paste, or `pct exec <id> -- bash -c '<command>'`. Each system has its own token.
+  - Alerts on all four: Status, Memory > 90% for 5 min, Disk > 85%. CPU > 95% for 10 min on the host only, because Plex scans and Tdarr CPU encodes run their CTs at 100% on purpose.
+  - Containers report the host's load average and temperature, so only alert on those for the host.
+- **CT 110 Uptime Kuma** (`http://192.168.4.134:3001`), SQLite database, MAC `BC:24:11:53:49:A8`, reserved in OPNsense.
+  - Notification: type ntfy, server `https://ntfy.sh`, same topic, priority 3 (DOWN events 5), "Default enabled" on.
+  - HTTP monitors: Proxmox `https://192.168.4.209:8006` (ignore TLS), Plex `http://192.168.4.120:32400/identity`, Tdarr `:8265`, Immich `http://192.168.4.163:2283/api/server/ping`, Tautulli `:8181`, Tunarr `:8000`, Kometa `:7171`, Beszel `:8090`.
+  - DNS monitors (resolve google.com): Pi-holes 192.168.4.145, 192.168.4.48, 192.168.5.53, 192.168.4.141.
+  - Ping monitors: OPNsense 192.168.4.1, Unraid 192.168.5.14, TerraMaster 192.168.4.180, pve-ups 192.168.4.205.
