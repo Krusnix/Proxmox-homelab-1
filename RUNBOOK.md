@@ -36,7 +36,7 @@ Set up 2026-11-10. Each container is backed up to a local volume every night, an
 - **Job `nightly-cts`** (Datacenter → Backup): 01:00 daily, all guests, snapshot mode, zstd, `keep-daily=3`, notes `{{guestname}}`, hook `--script /usr/local/bin/vzdump-rsync.sh`.
 - **What's skipped:** bind mounts (`/unraid`, `/nas`) are never included, and CT 104's `/tdarr_cache` is `backup=0`. Only container disks are backed up.
 - **Off-box copy:** TerraMaster (192.168.4.180) rsync module `proxmox-homelab-backup` (no "s"), account `krusnix`, password in `/etc/rsync-terramaster.pass` (mode 600, password only). The sync uses `--delete`, so the TerraMaster keeps the same 3 nights as the local disk (TerraMaster SSH is off, so nothing can prune there separately). Log: `/var/log/vzdump-rsync.log`. The other modules (`proxmox-plex-backup`, `unraid-backups`) belong to other machines; don't sync into them.
-- Size reference: CT 106 Tautulli = 333 MB compressed (1.1 GB raw).
+- Size reference (first full run 2026-11-10, ~8 min): **39 GB per night**. CT 105 Immich 27 GB, CT 103 Plex 6.9 GB, CT 104 Tdarr 1.5 GB, CT 107 Tunarr 1.1 GB, the rest under 700 MB each. 3 nights ≈ 120 GB of the 196 GB volume, so there's room for Immich to grow. Revisit retention if the volume passes ~75%.
 
 Rebuild:
 
