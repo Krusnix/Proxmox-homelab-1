@@ -346,16 +346,11 @@ Added 2026-11-11 (second batch). Same topic `homelab1-alerts-3d1ef2b124a1`. Fail
 
 Clearing failed jobs in either app lowers the count, which doesn't alert; the next failure after that does.
 
-**Plex via Tautulli (CT 106).** Tautulli has no ntfy agent, so use its Webhook agent posting JSON to ntfy's root URL. Settings → Notification Agents → Add → Webhook:
+**Plex via Tautulli (CT 106).** Tautulli's built-in **ntfy** agent (Settings → Notification Agents → Add → ntfy). Priority is per agent, so there are two:
 
-- Webhook URL `https://ntfy.sh`, method `POST`.
-- Triggers: Plex Server Down, Plex Server Back Up, Plex Remote Access Down, Plex Remote Access Back Up, Playback Start.
-- Data tab, JSON for each trigger:
-  - Server Down: `{"topic":"homelab1-alerts-3d1ef2b124a1","title":"Plex server down","message":"Tautulli lost contact with Plex at {datestamp} {timestamp}.","priority":5,"tags":["rotating_light"]}`
-  - Server Back Up: same with title `Plex server back up`, priority 3, tag `white_check_mark`.
-  - Remote Access Down / Back Up: titles `Plex remote access down` / `back up`, message `{remote_access_reason}`, priority 4 / 3.
-  - Playback Start: `{"topic":"homelab1-alerts-3d1ef2b124a1","title":"{user} is watching","message":"{title} on {player} ({transcode_decision})","priority":2,"tags":["tv"]}`
-- Use the agent's Test Notification button to check.
+- Agent 1 (outages): host `https://ntfy.sh`, no token, topic `homelab1-alerts-3d1ef2b124a1`, priority 5. Triggers: Plex Server Down, Plex Server Back Up, Plex Remote Access Down, Plex Remote Access Back Up.
+- Agent 2 (streams): Duplicate of agent 1 with priority 2 and only the Playback Start trigger.
+- Default text per trigger is kept. Test with the agent's Test Notifications tab.
 
 **Unraid (192.168.5.14).** Settings → Notification Settings:
 
