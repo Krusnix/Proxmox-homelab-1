@@ -59,10 +59,12 @@ All installed with the Proxmox community helper scripts, then configured by hand
 
 ### CT 104 Tdarr
 
-- Debian 13, Tdarr server 3.06.00, 2 cores / 6 GB. `/unraid` and `/nas` mounted, `/temp` → `/unraid/tdarr_cache`.
+- Debian 13, Tdarr server 3.06.00, **8 cores / 16 GB RAM / 1 GB swap** (raised from 2 cores / 6 GB on 2026-11-10; see below). `/unraid` and `/nas` mounted, `/temp` → `/unraid/tdarr_cache`.
 - Both GPUs; NVIDIA libs 620.70.06 (held with `apt-mark hold`).
 - Server auth on; node API key in `/opt/tdarr/configs/Tdarr_Node_Config.json`.
 - Custom plugin: `Tdarr_Plugin_AV1_HDR_Remove.js`. Old backup: `/unraid/dump/tdarr-backup`.
+- **AV1 encodes run on the CPU.** The custom plugin uses `libsvtav1` (neither GPU can encode AV1), even on the "NVIDIA Node"'s GPU worker slots. Keep that node at **2 GPU transcode workers, 0 CPU**: each 1080p encode uses ~0.7 GB RAM, a 4K HDR tonemap ~2.5 GB. At 2 cores / 6 GB it ran out of memory and stalled.
+- `tdarr-node.service` drop-in `/etc/systemd/system/tdarr-node.service.d/killmode.conf` sets `KillMode=mixed`. Without it (the default `KillMode=process`), a node crash or restart leaves its ffmpeg encodes running as orphans that pile up.
 
 ### CT 105 Immich
 
