@@ -63,7 +63,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 102 | pihole | 192.168.4.145 | Pi-hole + Unbound on 5335 (DoT to 8.8.8.8/8.8.4.4), nebula-sync primary |
 | 103 | plex | 192.168.4.120 | Both GPUs, /unraid + /nas |
 | 104 | tdarr | 192.168.4.127:8265 | Both GPUs, /unraid + /nas |
-| 105 | immich | 192.168.4.163:2283 | Both GPUs, /unraid |
+| 105 | immich | 192.168.4.163:2283 (DHCP reserved) | Both GPUs, /unraid |
 | 106 | tautulli | 192.168.4.113:8181 (DHCP reserved) | Plex stats, no GPU or shares |
 | 107 | tunarr | 192.168.4.235:8000 | Live TV channels for Plex, both GPUs |
 | 108 | kometa | 192.168.4.213 (DHCP reserved) | Plex collections/overlays, no GPU or shares |
@@ -109,7 +109,7 @@ dev1: /dev/dri/card1,gid=44         # Intel card
 dev2: /dev/dri/renderD129,gid=992   # NVIDIA render
 dev3-dev9: /dev/nvidia0, nvidiactl, nvidia-modeset, nvidia-uvm, nvidia-uvm-tools,
            /dev/nvidia-caps/nvidia-cap1, nvidia-cap2   (all gid=44)
-net0: vmbr0, dhcp, MAC BC:24:11:B5:13:3C (reserve .163 in OPNsense)
+net0: vmbr0, dhcp, MAC BC:24:11:B5:13:3C (.163 reserved in OPNsense)
 onboot: 1
 ```
 
