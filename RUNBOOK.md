@@ -1,6 +1,6 @@
 # homelab1-proxmox rebuild runbook
 
-Last updated 2026-11-10. Covers the Proxmox host rebuilt on 2026-11-08 and the LXCs on it.
+Last updated 2026-11-11. Covers the Proxmox host rebuilt on 2026-11-08 and the LXCs on it.
 
 ## Host
 
@@ -10,7 +10,7 @@ Last updated 2026-11-10. Covers the Proxmox host rebuilt on 2026-11-08 and the L
 | IP | 192.168.4.209/22, gateway and DNS 192.168.4.1 (OPNsense) |
 | Hardware | i7-12700H, 62 GB RAM, 1 TB NVMe (LVM, no redundancy) |
 | PVE | 9.x, standalone, community post-install script run |
-| Remote access | Tailscale on the host |
+| Remote access | Tailscale: OPNsense is the subnet router + exit node; host, CT 102 and CT 103 are plain tailnet devices (see below) |
 
 ### GPU drivers (host)
 
@@ -27,6 +27,30 @@ Last updated 2026-11-10. Covers the Proxmox host rebuilt on 2026-11-08 and the L
 | nas-public | `//192.168.4.180/public` (TerraMaster, SMB) | `/mnt/pve/nas-public` | `/nas` |
 
 Both are mounted with `uid=100000,gid=110000`, mode 0775. Inside unprivileged LXCs, create group `nasshare` with gid **10000** (maps to host gid 110000) and add the service user to it.
+
+### Tailscale
+
+Set up 2026-11-10, copied from how plex-proxmox does it.
+
+- **OPNsense** (tailnet 100.87.156.126) is the only subnet router and exit node. It advertises `192.168.4.0/23`, which covers 192.168.4.x and 192.168.5.x (Unraid). Nothing on this host advertises routes or runs as an exit node, and `net.ipv4.ip_forward` stays 0.
+- Tailscale 1.104.6 from the official apt repo (`pkgs.tailscale.com/stable/debian trixie`), installed by hand rather than via `install.sh`.
+- Every node is a plain client: `tailscale up --hostname=<name> --accept-dns=false --accept-routes=false`. No serve, funnel or SSH. Tailscale shows the names with a hyphen (`*-homelab-1`, MagicDNS `<name>.tail6e0a9a.ts.net`) even though `--hostname` was `*homelab1`.
+
+| Node | Where | Tailnet IP | Use |
+|---|---|---|---|
+| proxmox-homelab-1 | host | 100.94.106.106 | Proxmox UI at `https://100.94.106.106:8006` |
+| pihole-homelab-1 | CT 102 | 100.116.175.64 | Pi-hole |
+| plex-homelab-1 | CT 103 | 100.92.231.97 | Plex |
+
+- CT 102 and CT 103 need TUN access for Tailscale. Append to `/etc/pve/lxc/<id>.conf`, then `pct reboot <id>`:
+  ```
+  lxc.cgroup2.devices.allow: c 10:200 rwm
+  lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
+  ```
+  Pre-change backups: `/root/102.conf.bak-202611101913`, `/root/103.conf.bak-202611101913`.
+- **Tailnet DNS → Pi-hole:** in the Tailscale admin console under DNS, add custom nameserver `192.168.4.145` and turn on Override DNS servers. Pi-hole's `dns.listeningMode` is `ALL`, so it answers tailnet clients. `--accept-dns=false` on the Pi-hole node keeps Pi-hole on its own Unbound.
+- OPNsense UI from the tailnet: its tailnet IP or `192.168.4.1` via the subnet route. If it doesn't load, add a pass rule on the Tailscale interface to "This Firewall" on 443.
+- On a rebuild, delete the old devices in the Tailscale admin first, or the new ones get a `-1` added to their names.
 
 ## LXCs
 
