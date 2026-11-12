@@ -567,3 +567,5 @@ echo '0 9 * * 0 root /usr/local/bin/ntfy-update-checks.sh' > /etc/cron.d/ntfy-up
 ```
 
 Run each once by hand. Run from a terminal, the disk script prints every item it checked with its %. To test the send path with one quiet ping: `touch /var/lib/ntfy-checks/disk/host_ && /usr/local/bin/ntfy-disk-checks.sh` should give "Disk OK: host /".
+
+Installed and tested 2026-11-12: first disk run showed everything under 85% (highest CT 105 Immich at 74%), the update check found nothing waiting, and both the "Disk OK" test and the smartd `-M test` ping arrived on the phone.
