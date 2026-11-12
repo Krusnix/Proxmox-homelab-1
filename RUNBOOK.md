@@ -379,7 +379,7 @@ Clearing failed jobs in either app lowers the count, which doesn't alert; the ne
 
 2. Services → Monit → Settings → General: enable Monit (polling 60s). No mail server needed.
 3. Service Tests Settings → add test `GatewayAlert`: Condition `status != 0`, Action `Execute`, Path `/root/ntfy-alert.sh`.
-4. Service Settings → add service `Gateway_Alert`: Type Custom, Path `/usr/local/opnsense/scripts/OPNsense/Monit/gateway_alert.php`, Tests `GatewayAlert`. Apply.
-5. Test: System → Gateways → mark the WAN gateway down for a minute ("Mark gateway as down") and watch for the ping.
+4. Service Settings → edit the built-in `Gateway_Alert` entry: tick Enable service checks, Type Custom, Tests `GatewayAlert`. Path: the old `/usr/local/opnsense/scripts/OPNsense/Monit/gateway_alert.php` no longer exists on current OPNsense and makes Monit fail to reload; use the path from `find /usr/local/opnsense -name 'gateway_alert*'` (also in the built-in lowercase `gateway_alert` entry). Check with `monit -t -c /usr/local/etc/monitrc`. Apply.
+5. Test: System → Gateways → mark the WAN gateway down for a minute ("Mark gateway as down") and watch for the ping. Tested OK 2026-11-11. The test only runs the script on failure, so there is a "down" ping but no "back up" ping.
 
 Firmware updates are manual on OPNsense (System → Firmware), so there's nothing to alert on there. Uptime Kuma already pings OPNsense's LAN address.
