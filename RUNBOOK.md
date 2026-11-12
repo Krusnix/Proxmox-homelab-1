@@ -355,16 +355,7 @@ Clearing failed jobs in either app lowers the count, which doesn't alert; the ne
 **Unraid (192.168.5.14).** Settings → Notification Settings:
 
 - Turn on array status notifications and "Notification entity → Agents" for Warnings and Alerts (not Notices, which include every finished parity check and update).
-- Agent: if "ntfy.sh" is listed under Notification agents, enable it with URL `https://ntfy.sh` and topic `homelab1-alerts-3d1ef2b124a1`. If not, add this as `/boot/config/plugins/dynamix/notifications/agents/ntfy.sh` (plural `notifications`; the built-in help shows the singular path, which doesn't work), `chmod +x`:
-
-  ```bash
-  #!/bin/bash
-  # Unraid passes EVENT, SUBJECT, DESCRIPTION, IMPORTANCE (normal|warning|alert), CONTENT
-  case "$IMPORTANCE" in alert) P=5 ;; warning) P=4 ;; *) P=3 ;; esac
-  curl -fsS -m 20 -H "Title: Unraid: $SUBJECT" -H "Priority: $P" -H "Tags: unraid,$IMPORTANCE" \
-    -d "$DESCRIPTION ${CONTENT:-}" https://ntfy.sh/homelab1-alerts-3d1ef2b124a1 >/dev/null
-  ```
-
+- Agent: the built-in **ntfy.sh** agent (Unraid 7.x). URL `https://ntfy.sh`, topic `homelab1-alerts-3d1ef2b124a1`, title Subject, message Description + Content. The token field is required, so Trent made a free ntfy.sh account and uses its access token (`tk_...`); the topic is still public, so other senders need no token. Set up and tested 2026-11-11.
 - Disk temperature thresholds are in Settings → Disk Settings (warning/critical per disk type). SMART and parity errors arrive as warnings/alerts on their own.
 - Test: Settings → Notification Settings → Test, or on the Unraid shell `/usr/local/emhttp/webGui/scripts/notify -i warning -s "test" -d "ntfy test"`.
 
