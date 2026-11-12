@@ -270,3 +270,142 @@ Added 2026-11-11. Same phone topic as Beszel and Uptime Kuma: `homelab1-alerts-3
   ```
 
 - **UPS:** CT 101 runs PVE-UPS ([ffind-dev/pve-ups](https://github.com/ffind-dev/pve-ups), service `pve-usv`, web UI `http://192.168.4.205:8080`, config `/etc/pve-usv/config.yaml`). It is not NUT itself. It reads the CyberPower UPS from the NUT server at `192.168.4.141:3493`, UPS name `cyberpower`, no login (the UPS's USB cable goes to that box). Settings: UPS device Read via NUT with those values; Notifications → webhook format ntfy, URL `https://ntfy.sh/homelab1-alerts-3d1ef2b124a1`, severity warning and above. The ntfy webhook is only set here, not on plex-proxmox's PVE-UPS (which reads the same UPS), to avoid double alerts.
+
+### ntfy alerts: Tdarr, Plex/Tautulli, Immich, Unraid, OPNsense
+
+Added 2026-11-11 (second batch). Same topic `homelab1-alerts-3d1ef2b124a1`. Failures use priority 4-5 (sound). Activity pings (Plex stream starts, Tdarr queue empty) use priority 2, which shows in the app without sound or buzz.
+
+**Tdarr and Immich (poller on the Proxmox host).** Neither app can push to ntfy itself, so a cron job on the host reads their APIs every 10 minutes and pings when the failed count goes up (Tdarr transcode errors, Immich failed jobs) or the Tdarr queue drops to 0.
+
+1. API keys. Tdarr: Tools → API Keys → create one. Immich: account menu → Account Settings → API Keys → new key for admin `krusnix`, name `ntfy-checks`, with only `job.read` (and `queue.read` if listed) ticked.
+2. Check the APIs answer before installing (both should print JSON):
+
+   ```bash
+   apt install -y jq
+   curl -s -H "x-api-key: <tdarr key>" -H 'Content-Type: application/json' \
+     -d '{"data":{"collection":"StatisticsJSONDB","mode":"getById","docID":"statistics"}}' \
+     http://192.168.4.127:8265/api/v2/cruddb | jq '{table1Count, table3Count}'
+   curl -s -H "x-api-key: <immich key>" http://192.168.4.163:2283/api/queues | jq '[.. | .failed? | numbers] | add'
+   # if /api/queues gives 404, try /api/jobs
+   # Checked 2026-11-11: Tdarr returned table1Count 1606 / table3Count 69, Immich /api/queues returned 52 failed.
+   ```
+
+3. Keys go in `/root/.ntfy-checks.env` (`chmod 600`):
+
+   ```bash
+   TDARR_KEY=...
+   IMMICH_KEY=...
+   ```
+
+4. Script `/usr/local/bin/ntfy-app-checks.sh` (`chmod 755`):
+
+   ```bash
+   #!/bin/bash
+   # Polls Tdarr and Immich and pings ntfy when failures rise or the Tdarr queue empties.
+   set -u
+   . /root/.ntfy-checks.env
+   NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+   STATE=/var/lib/ntfy-checks; mkdir -p "$STATE"
+   LOG=/var/log/ntfy-checks.log
+
+   notify() {  # notify <priority> <tags> <title> <message>
+     curl -fsS -m 20 -H "Priority: $1" -H "Tags: $2" -H "Title: $3" -d "$4" "$NTFY" >/dev/null \
+       || echo "$(date '+%F %T') ntfy send failed: $3" >> "$LOG"
+   }
+   # compare <name> <new value>: prints the old value and saves the new one
+   swap() { local f="$STATE/$1" old; old=$(cat "$f" 2>/dev/null || echo "$2"); echo "$2" > "$f"; echo "$old"; }
+
+   # Tdarr: table1Count = transcode queue, table3Count = transcode errors
+   if t=$(curl -fsS -m 20 -H "x-api-key: $TDARR_KEY" -H 'Content-Type: application/json' \
+       -d '{"data":{"collection":"StatisticsJSONDB","mode":"getById","docID":"statistics"}}' \
+       http://192.168.4.127:8265/api/v2/cruddb); then
+     q=$(jq -r '.table1Count // empty' <<<"$t"); e=$(jq -r '.table3Count // empty' <<<"$t")
+     if [ -n "$e" ]; then old=$(swap tdarr_errors "$e")
+       [ "$e" -gt "$old" ] && notify 4 warning "Tdarr: $((e-old)) transcode(s) failed" \
+         "Error/cancelled count is now $e. Check http://192.168.4.127:8265 (Transcode: Error/Cancelled tab)."
+     fi
+     if [ -n "$q" ]; then old=$(swap tdarr_queue "$q")
+       [ "$q" -eq 0 ] && [ "$old" -gt 0 ] && notify 2 white_check_mark "Tdarr queue empty" "All queued transcodes are done."
+     fi
+   else echo "$(date '+%F %T') Tdarr API unreachable" >> "$LOG"   # Uptime Kuma alerts on Tdarr down
+   fi
+
+   # Immich: sum of failed jobs across all queues (/api/queues on new versions, /api/jobs on old)
+   for path in queues jobs; do
+     i=$(curl -fsS -m 20 -H "x-api-key: $IMMICH_KEY" "http://192.168.4.163:2283/api/$path") && break
+   done
+   f=$(jq -r '[.. | .failed? | numbers] | add // empty' <<<"${i:-null}" 2>/dev/null)
+   if [ -n "$f" ]; then old=$(swap immich_failed "$f")
+     [ "$f" -gt "$old" ] && notify 4 warning "Immich: $((f-old)) job(s) failed" \
+       "Failed jobs now $f. Check Administration → Job Queues at http://192.168.4.163:2283."
+   else echo "$(date '+%F %T') Immich API unreachable or no counts" >> "$LOG"
+   fi
+   ```
+
+5. Cron: `echo '*/10 * * * * root /usr/local/bin/ntfy-app-checks.sh' > /etc/cron.d/ntfy-app-checks`. Run it once by hand: the first run only records the counts and sends nothing. `/var/log/ntfy-checks.log` should stay empty.
+
+Clearing failed jobs in either app lowers the count, which doesn't alert; the next failure after that does.
+
+**Plex via Tautulli (CT 106).** Tautulli's built-in **ntfy** agent (Settings → Notification Agents → Add → ntfy). Priority is per agent, so there are two:
+
+- Agent 1 (outages): host `https://ntfy.sh`, no token, topic `homelab1-alerts-3d1ef2b124a1`, priority 5. Triggers: Plex Server Down, Plex Server Back Up, Plex Remote Access Down, Plex Remote Access Back Up.
+- Agent 2 (streams): Duplicate of agent 1 with priority 2 and only the Playback Start trigger.
+- Default text per trigger is kept. Test with the agent's Test Notifications tab.
+
+**Unraid (192.168.5.14).** Settings → Notification Settings:
+
+- Turn on array status notifications and "Notification entity → Agents" for Warnings and Alerts (not Notices, which include every finished parity check and update).
+- Agent: the built-in **ntfy.sh** agent (Unraid 7.x). URL `https://ntfy.sh`, topic `homelab1-alerts-3d1ef2b124a1`, title Subject, message Description + Content. The token field is required, so Trent made a free ntfy.sh account and uses its access token (`tk_...`); the topic is still public, so other senders need no token. Set up and tested 2026-11-11.
+- Disk temperature thresholds are in Settings → Disk Settings (warning/critical per disk type). SMART and parity errors arrive as warnings/alerts on their own.
+- Test: Settings → Notification Settings → Test, or on the Unraid shell `/usr/local/emhttp/webGui/scripts/notify -i warning -s "test" -d "ntfy test"`.
+
+**OPNsense (192.168.4.1): main WAN down / back up.** OPNsense's Monit can only email, so it runs scripts that curl ntfy. Gateways: `WAN_DHCP` (main, monitor 1.1.1.1), `WAN_DHCP6`, `WAN2_DHCP` (Verizon Home Internet backup, normally down: the plan only allows seven manually started 24-hour sessions a month), `PROTON_GW` (VPN). Because WAN2 is normally down, the stock `gateway_alert.php` check (now at `/usr/local/opnsense/scripts/monit/gateway_alert.php`; the old `scripts/OPNsense/Monit/` path makes Monit fail to reload) stays failed forever and never alerts, so a custom check watches `WAN_DHCP` only. Don't disable WAN2 gateway monitoring: the failover groups need it.
+
+1. In the OPNsense shell (`sh`), `/root/ntfy-alert.sh`, `chmod 755`. Use the full path to curl: Monit runs scripts with a minimal PATH that lacks `/usr/local/bin`.
+
+   ```sh
+   #!/bin/sh
+   # Sends an ntfy ping. Called by Monit (sets MONIT_SERVICE, MONIT_EVENT, MONIT_DESCRIPTION).
+   # Retries for up to an hour, since ntfy.sh is unreachable while the WAN is down.
+   (
+   i=0
+   while [ $i -lt 120 ]; do
+     /usr/local/bin/curl -fsS -m 20 -H "Title: OPNsense: ${MONIT_SERVICE} ${MONIT_EVENT}" -H "Priority: 5" \
+       -H "Tags: globe_with_meridians" -d "${MONIT_DESCRIPTION} (at $(date '+%F %T'))" \
+       https://ntfy.sh/homelab1-alerts-3d1ef2b124a1 >/dev/null && exit 0
+     i=$((i+1)); sleep 30
+   done
+   ) >/dev/null 2>&1 &
+   ```
+
+2. `/root/wan-check.sh`, `chmod 755`:
+
+   ```sh
+   #!/bin/sh
+   # Monit check: exit 1 only when the main WAN (WAN_DHCP) is down. Ignores WAN2 and the VPN.
+   # Sends its own "back up" ping the first time WAN is OK after an outage.
+   FLAG=/var/run/wan-check.down
+   out=$(/usr/local/sbin/pluginctl -r return_gateways_status | /usr/local/bin/python3 -c '
+   import json, sys
+   g = json.load(sys.stdin)["dpinger"].get("WAN_DHCP", {})
+   s = g.get("status", "missing")
+   print("WAN_DHCP status=%s loss=%s delay=%s" % (s, g.get("loss"), g.get("delay")))
+   sys.exit(1 if s in ("down", "force_down", "missing") else 0)
+   ')
+   rc=$?
+   echo "$out"
+   if [ $rc -ne 0 ]; then
+     touch "$FLAG"
+   elif [ -f "$FLAG" ]; then
+     rm -f "$FLAG"
+     MONIT_SERVICE=WAN MONIT_EVENT="back up" MONIT_DESCRIPTION="$out" /root/ntfy-alert.sh
+   fi
+   exit $rc
+   ```
+
+3. Services → Monit → General Settings: enable Monit (polling 60s). No mail server needed.
+4. Service Tests Settings → test `GatewayAlert`: Condition `status != 0`, Action `Execute`, Path `/root/ntfy-alert.sh`.
+5. Service Settings → built-in `Gateway_Alert` entry: Enable service checks, Type Custom, Path `/root/wan-check.sh`, Tests `GatewayAlert`. Delete the lowercase duplicate `gateway_alert`. Apply, then `monit -t -c /usr/local/etc/monitrc` → "Control file syntax OK"; `monit status Gateway_Alert` shows the last output.
+6. Test: System → Gateways → Configuration → WAN_DHCP → "Mark Gateway as Down", save/apply, wait for the ping; untick for the "back up" ping. Both tested OK 2026-11-11.
+
+Firmware updates are manual on OPNsense (System → Firmware), so there's nothing to alert on there. Uptime Kuma already pings OPNsense's LAN address.
