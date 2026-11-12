@@ -1,6 +1,6 @@
 # homelab1-proxmox rebuild runbook
 
-Last updated 2026-11-11. Covers the Proxmox host rebuilt on 2026-11-08 and the LXCs on it.
+Last updated 2026-11-12. Covers the Proxmox host rebuilt on 2026-11-08 and the LXCs on it.
 
 ## Host
 
@@ -409,3 +409,163 @@ Clearing failed jobs in either app lowers the count, which doesn't alert; the ne
 6. Test: System → Gateways → Configuration → WAN_DHCP → "Mark Gateway as Down", save/apply, wait for the ping; untick for the "back up" ping. Both tested OK 2026-11-11.
 
 Firmware updates are manual on OPNsense (System → Firmware), so there's nothing to alert on there. Uptime Kuma already pings OPNsense's LAN address.
+
+### ntfy alerts: disk space, NVMe health, updates
+
+Added 2026-11-12 (third batch). Same topic `homelab1-alerts-3d1ef2b124a1`. Both scripts run on the host from cron and log ntfy send failures to `/var/log/ntfy-checks.log`. A paste-ready installer is in the project files at `ntfy-disk-updates/install.sh`.
+
+**What was already covered.** smartd runs on the host with the Debian default `DEVICESCAN ... -m root -M exec /usr/share/smartmontools/smartd-runner`, so a SMART failure mails root. Root's mail goes through `proxmox-mail-forward` into the notification system as `type=system-mail`, which the `ntfy-problems` matcher sends to ntfy. Beszel alerts at Disk > 85% for the host root and the rootfs of CT 103/104/105 only.
+
+To re-test the smartd path (should give one ping titled with the smartd test message):
+
+```bash
+systemctl is-active smartd; grep -v '^\s*#' /etc/smartd.conf | grep .
+sed -i 's/^DEVICESCAN/& -M test/' /etc/smartd.conf && systemctl restart smartd
+# wait for the ping, then undo:
+sed -i 's/ -M test//' /etc/smartd.conf && systemctl restart smartd
+```
+
+**Disk space and NVMe health, hourly:** `/usr/local/bin/ntfy-disk-checks.sh`, cron `/etc/cron.d/ntfy-disk-checks` (`17 * * * *`). It alerts (priority 4) once when something reaches 85% and sends a quiet "Disk OK" (priority 2) when it drops back. State files are in `/var/lib/ntfy-checks/disk/` (one file per item that is over the limit). It checks:
+
+- Host filesystems from `df` (`/`, `/mnt/backup-local`, `/boot/efi`). The SMB shares are skipped (Unraid and the TerraMaster alert on their own).
+- LVM thin pools, data and metadata (`pve/data` is local-lvm, which nothing else watches). A full thin pool corrupts every CT on it, so treat this alert as urgent.
+- Every running CT's own disks via `pct exec <id> -- df` (rootfs and disks like CT 104 `/tdarr_cache`). CT 103/104/105 rootfs overlap with Beszel, so those can ping twice.
+- The NVMe: SMART failed or `critical_warning` set (priority 5), new media errors (priority 5), and wear (`percentage_used`) at 80%.
+
+**Updates waiting, weekly:** `/usr/local/bin/ntfy-update-checks.sh`, cron `/etc/cron.d/ntfy-update-checks` (Sundays 09:00, host time America/Chicago). It runs `apt-get update` on the host and in every running CT (or `apk` on Alpine), counts what `dist-upgrade` would install, and sends one ping listing each machine with updates. Priority 3, or 4 if any are security updates. It sends nothing when everything is current, and lists stopped CTs as not checked.
+
+- If a CT has NVIDIA package updates, the ping says so. The CT drivers must stay at the host's version (620.70.06), so hold those packages (`apt-mark hold <pkg>`) rather than upgrading. CT 104's are already held.
+- It only sees apt/apk packages (Plex comes from Plex's apt repo, so it's covered). Apps the helper scripts installed outside apt (Tdarr, Immich, Tunarr, Kometa, Tautulli, Beszel, Uptime Kuma) don't show up; update those with `update` in the CT console.
+- Proxmox's own daily "package updates available" notice is severity info, so it still goes to mail only.
+
+```bash
+# /usr/local/bin/ntfy-disk-checks.sh
+#!/bin/bash
+# Hourly: pings ntfy when a filesystem, thin pool or CT disk passes 85%,
+# or the NVMe reports a critical warning, new media errors or heavy wear.
+# Each problem alerts once when it starts and once when it clears.
+set -u
+NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+LIMIT=85        # % full
+WEAR_LIMIT=80   # NVMe "percentage used" (rated endurance)
+STATE=/var/lib/ntfy-checks/disk; mkdir -p "$STATE"
+LOG=/var/log/ntfy-checks.log
+DF_SKIP="-x tmpfs -x devtmpfs -x cifs -x smb3 -x nfs -x nfs4 -x fuse -x fuse.lxcfs -x overlay -x squashfs -x efivarfs"
+
+notify() {  # notify <priority> <tags> <title> <message>
+  curl -fsS -m 20 -H "Priority: $1" -H "Tags: $2" -H "Title: $3" -d "$4" "$NTFY" >/dev/null \
+    || echo "$(date '+%F %T') ntfy send failed: $3" >> "$LOG"
+}
+# flag <key> <0|1> <title if bad> <message if bad> <title when cleared>
+flag() {
+  local f="$STATE/$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')"
+  if [ "$2" -eq 1 ]; then
+    [ -e "$f" ] || { touch "$f"; notify 4 warning "$3" "$4"; }
+  elif [ -e "$f" ]; then
+    rm -f "$f"; notify 2 white_check_mark "$5" "Back under the limit."
+  fi
+}
+pct_check() {  # pct_check <key> <percent> <label>
+  local p=${2%%[.%]*}; [ -n "$p" ] || return
+  [ -t 1 ] && printf '%4s%%  %s\n' "$p" "$3"   # table when run by hand
+  flag "$1" $([ "$p" -ge "$LIMIT" ] && echo 1 || echo 0) \
+    "Disk ${p}% full: $3" "$3 is at ${p}% (alert limit ${LIMIT}%)." "Disk OK: $3"
+}
+df_rows() { tail -n +2 | awk '{print $5, $6}'; }
+
+# Host filesystems (/, /mnt/backup-local, /boot/efi ...). SMB shares are skipped.
+df -P $DF_SKIP 2>/dev/null | df_rows | while read -r p m; do
+  pct_check "host$m" "$p" "host $m"
+done
+
+# LVM thin pools (local-lvm = pve/data): data and metadata
+lvs --noheadings --nosuffix -o vg_name,lv_name,data_percent,metadata_percent -S 'lv_attr=~^t' 2>/dev/null |
+while read -r vg lv d md; do
+  pct_check "thin-$vg-$lv-data" "$d" "thin pool $vg/$lv (data)"
+  pct_check "thin-$vg-$lv-meta" "$md" "thin pool $vg/$lv (metadata)"
+done
+
+# Every running CT's own disks (rootfs and mpX like /tdarr_cache). Bind-mounted shares are skipped.
+for id in $(pct list 2>/dev/null | awk 'NR>1 && $2=="running" {print $1}'); do
+  name=$(pct config "$id" | awk '/^hostname:/ {print $2}')
+  timeout 60 pct exec "$id" -- df -P $DF_SKIP 2>/dev/null | df_rows | while read -r p m; do
+    pct_check "ct$id$m" "$p" "CT $id $name $m"
+  done
+done
+
+# NVMe health (smartd also mails on SMART failure; this adds wear and media errors)
+for dev in $(ls /dev/nvme* 2>/dev/null | grep -E '^/dev/nvme[0-9]+$'); do
+  j=$(smartctl -j -H -A "$dev" 2>/dev/null)
+  h=$(jq -c '.nvme_smart_health_information_log // empty' <<<"$j" 2>/dev/null)
+  if [ -z "$h" ]; then echo "$(date '+%F %T') smartctl read failed on $dev" >> "$LOG"; continue; fi
+  cw=$(jq -r '.critical_warning // 0' <<<"$h"); used=$(jq -r '.percentage_used // 0' <<<"$h")
+  me=$(jq -r '.media_errors // 0' <<<"$h");     ok=$(jq -r '.smart_status.passed // true' <<<"$j")
+  k=$(basename "$dev")
+  bad=0; { [ "$cw" != 0 ] || [ "$ok" = false ]; } && bad=1
+  [ "$bad" = 1 ] && [ ! -e "$STATE/$k-health" ] && notify 5 rotating_light "NVMe $dev health FAILING" \
+    "critical_warning=$cw, SMART passed=$ok. Run: smartctl -a $dev. Check backups are current."
+  if [ "$bad" = 1 ]; then touch "$STATE/$k-health"; else rm -f "$STATE/$k-health"; fi
+  flag "$k-wear" $([ "$used" -ge "$WEAR_LIMIT" ] && echo 1 || echo 0) \
+    "NVMe $dev wear ${used}%" "$dev has used ${used}% of its rated endurance. Plan a replacement." "NVMe wear OK"
+  old=$(cat "$STATE/$k-media_errors" 2>/dev/null || echo "$me"); echo "$me" > "$STATE/$k-media_errors"
+  [ "$me" -gt "$old" ] && notify 5 rotating_light "NVMe $dev: $((me-old)) new media error(s)" \
+    "Media/data integrity errors now $me. Run: smartctl -a $dev"
+done
+exit 0
+```
+
+```bash
+# /usr/local/bin/ntfy-update-checks.sh
+#!/bin/bash
+# Weekly: refreshes package lists on the host and every running CT and pings ntfy
+# with what has updates waiting. Only covers apt/apk packages, not apps the
+# helper scripts installed outside apt (use each CT's `update` command for those).
+set -u
+NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+LOG=/var/log/ntfy-checks.log
+
+# Prints "<updates> <security> <nvidia>" or "ERR <reason>". Plain sh so it runs in any CT.
+CHECK='if command -v apt-get >/dev/null 2>&1; then
+  apt-get update -qq >/dev/null 2>&1 || { echo "ERR apt update failed"; exit 0; }
+  s=$(apt-get -s -o Debug::NoLocking=1 dist-upgrade 2>/dev/null | grep "^Inst ")
+  echo "$(printf "%s" "$s" | grep -c .) $(printf "%s" "$s" | grep -ci security) $(printf "%s" "$s" | grep -ci nvidia)"
+elif command -v apk >/dev/null 2>&1; then
+  apk update -q >/dev/null 2>&1 || { echo "ERR apk update failed"; exit 0; }
+  echo "$(apk version -l "<" 2>/dev/null | tail -n +2 | grep -c .) 0 0"
+else echo "ERR no apt or apk"; fi'
+
+total=0; sec=0; err=0; lines=""; warn=""
+add() {  # add <label> <output of CHECK>
+  set -- "$1" $2
+  if [ "$2" = ERR ]; then err=1; lines+="$1: ${*:3}"$'\n'; return; fi
+  [ "${2:-0}" -gt 0 ] 2>/dev/null || return
+  total=$((total+$2)); sec=$((sec+$3))
+  lines+="$1: $2$([ "$3" -gt 0 ] && echo " ($3 security)")"$'\n'
+  [ "$4" -gt 0 ] && warn+="$1 has NVIDIA package updates: the driver must stay 620.70.06 to match the host, so hold them (apt-mark hold) instead of upgrading."$'\n'
+}
+
+add "host" "$(timeout 600 sh -c "$CHECK")"
+for id in $(pct list 2>/dev/null | awk 'NR>1 {print $1}'); do
+  name=$(pct config "$id" | awk '/^hostname:/ {print $2}')
+  if [ "$(pct status "$id" | awk '{print $2}')" != running ]; then lines+="CT $id $name: not checked (stopped)"$'\n'; continue; fi
+  add "CT $id $name" "$(timeout 600 pct exec "$id" -- sh -c "$CHECK" 2>/dev/null || echo 'ERR no answer')"
+done
+
+[ "$total" -gt 0 ] || [ "$err" = 1 ] || exit 0     # nothing waiting and no errors: stay quiet
+prio=3; [ "$sec" -gt 0 ] && prio=4; [ -n "$warn" ] && prio=4
+msg="$lines${warn:+$'\n'$warn}
+Host: Datacenter -> homelab1-proxmox -> Updates (or apt update && apt dist-upgrade). CTs: run update in each CT's console."
+curl -fsS -m 20 -H "Priority: $prio" -H "Tags: package" -H "Title: Updates waiting: $total package(s), $sec security" \
+  -d "$msg" "$NTFY" >/dev/null || echo "$(date '+%F %T') ntfy send failed: weekly updates" >> "$LOG"
+```
+
+Install: save both with `chmod 755`, then
+
+```bash
+echo '17 * * * * root /usr/local/bin/ntfy-disk-checks.sh' > /etc/cron.d/ntfy-disk-checks
+echo '0 9 * * 0 root /usr/local/bin/ntfy-update-checks.sh' > /etc/cron.d/ntfy-update-checks
+```
+
+Run each once by hand. Run from a terminal, the disk script prints every item it checked with its %. To test the send path with one quiet ping: `touch /var/lib/ntfy-checks/disk/host_ && /usr/local/bin/ntfy-disk-checks.sh` should give "Disk OK: host /".
+
+Installed and tested 2026-11-12: first disk run showed everything under 85% (highest CT 105 Immich at 74%), the update check found nothing waiting, and both the "Disk OK" test and the smartd `-M test` ping arrived on the phone.
