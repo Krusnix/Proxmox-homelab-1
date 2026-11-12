@@ -359,17 +359,18 @@ Clearing failed jobs in either app lowers the count, which doesn't alert; the ne
 - Disk temperature thresholds are in Settings → Disk Settings (warning/critical per disk type). SMART and parity errors arrive as warnings/alerts on their own.
 - Test: Settings → Notification Settings → Test, or on the Unraid shell `/usr/local/emhttp/webGui/scripts/notify -i warning -s "test" -d "ntfy test"`.
 
-**OPNsense (192.168.4.1): WAN/gateway down.** OPNsense's Monit can only email, so it runs a script that curls ntfy. The script keeps retrying for up to an hour, because ntfy.sh can't be reached while the WAN is down; the "down" ping arrives once the link is back (or right away if the gateway is only degraded).
+**OPNsense (192.168.4.1): main WAN down / back up.** OPNsense's Monit can only email, so it runs scripts that curl ntfy. Gateways: `WAN_DHCP` (main, monitor 1.1.1.1), `WAN_DHCP6`, `WAN2_DHCP` (Verizon Home Internet backup, normally down: the plan only allows seven manually started 24-hour sessions a month), `PROTON_GW` (VPN). Because WAN2 is normally down, the stock `gateway_alert.php` check (now at `/usr/local/opnsense/scripts/monit/gateway_alert.php`; the old `scripts/OPNsense/Monit/` path makes Monit fail to reload) stays failed forever and never alerts, so a custom check watches `WAN_DHCP` only. Don't disable WAN2 gateway monitoring: the failover groups need it.
 
-1. SSH to OPNsense (option 8, shell) and create `/root/ntfy-alert.sh`, `chmod 755`:
+1. In the OPNsense shell (`sh`), `/root/ntfy-alert.sh`, `chmod 755`. Use the full path to curl: Monit runs scripts with a minimal PATH that lacks `/usr/local/bin`.
 
    ```sh
    #!/bin/sh
-   # Called by Monit. Monit sets MONIT_SERVICE, MONIT_EVENT, MONIT_DESCRIPTION.
+   # Sends an ntfy ping. Called by Monit (sets MONIT_SERVICE, MONIT_EVENT, MONIT_DESCRIPTION).
+   # Retries for up to an hour, since ntfy.sh is unreachable while the WAN is down.
    (
    i=0
    while [ $i -lt 120 ]; do
-     curl -fsS -m 20 -H "Title: OPNsense: ${MONIT_SERVICE} ${MONIT_EVENT}" -H "Priority: 5" \
+     /usr/local/bin/curl -fsS -m 20 -H "Title: OPNsense: ${MONIT_SERVICE} ${MONIT_EVENT}" -H "Priority: 5" \
        -H "Tags: globe_with_meridians" -d "${MONIT_DESCRIPTION} (at $(date '+%F %T'))" \
        https://ntfy.sh/homelab1-alerts-3d1ef2b124a1 >/dev/null && exit 0
      i=$((i+1)); sleep 30
@@ -377,9 +378,34 @@ Clearing failed jobs in either app lowers the count, which doesn't alert; the ne
    ) >/dev/null 2>&1 &
    ```
 
-2. Services → Monit → Settings → General: enable Monit (polling 60s). No mail server needed.
-3. Service Tests Settings → add test `GatewayAlert`: Condition `status != 0`, Action `Execute`, Path `/root/ntfy-alert.sh`.
-4. Service Settings → edit the built-in `Gateway_Alert` entry: tick Enable service checks, Type Custom, Tests `GatewayAlert`. Path: the old `/usr/local/opnsense/scripts/OPNsense/Monit/gateway_alert.php` no longer exists on current OPNsense and makes Monit fail to reload; use the path from `find /usr/local/opnsense -name 'gateway_alert*'` (also in the built-in lowercase `gateway_alert` entry). Check with `monit -t -c /usr/local/etc/monitrc`. Apply.
-5. Test: System → Gateways → mark the WAN gateway down for a minute ("Mark gateway as down") and watch for the ping. Tested OK 2026-11-11. The test only runs the script on failure, so there is a "down" ping but no "back up" ping.
+2. `/root/wan-check.sh`, `chmod 755`:
+
+   ```sh
+   #!/bin/sh
+   # Monit check: exit 1 only when the main WAN (WAN_DHCP) is down. Ignores WAN2 and the VPN.
+   # Sends its own "back up" ping the first time WAN is OK after an outage.
+   FLAG=/var/run/wan-check.down
+   out=$(/usr/local/sbin/pluginctl -r return_gateways_status | /usr/local/bin/python3 -c '
+   import json, sys
+   g = json.load(sys.stdin)["dpinger"].get("WAN_DHCP", {})
+   s = g.get("status", "missing")
+   print("WAN_DHCP status=%s loss=%s delay=%s" % (s, g.get("loss"), g.get("delay")))
+   sys.exit(1 if s in ("down", "force_down", "missing") else 0)
+   ')
+   rc=$?
+   echo "$out"
+   if [ $rc -ne 0 ]; then
+     touch "$FLAG"
+   elif [ -f "$FLAG" ]; then
+     rm -f "$FLAG"
+     MONIT_SERVICE=WAN MONIT_EVENT="back up" MONIT_DESCRIPTION="$out" /root/ntfy-alert.sh
+   fi
+   exit $rc
+   ```
+
+3. Services → Monit → General Settings: enable Monit (polling 60s). No mail server needed.
+4. Service Tests Settings → test `GatewayAlert`: Condition `status != 0`, Action `Execute`, Path `/root/ntfy-alert.sh`.
+5. Service Settings → built-in `Gateway_Alert` entry: Enable service checks, Type Custom, Path `/root/wan-check.sh`, Tests `GatewayAlert`. Delete the lowercase duplicate `gateway_alert`. Apply, then `monit -t -c /usr/local/etc/monitrc` → "Control file syntax OK"; `monit status Gateway_Alert` shows the last output.
+6. Test: System → Gateways → Configuration → WAN_DHCP → "Mark Gateway as Down", save/apply, wait for the ping; untick for the "back up" ping. Down ping tested OK 2026-11-11.
 
 Firmware updates are manual on OPNsense (System → Firmware), so there's nothing to alert on there. Uptime Kuma already pings OPNsense's LAN address.
