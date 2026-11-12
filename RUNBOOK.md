@@ -406,6 +406,6 @@ Clearing failed jobs in either app lowers the count, which doesn't alert; the ne
 3. Services → Monit → General Settings: enable Monit (polling 60s). No mail server needed.
 4. Service Tests Settings → test `GatewayAlert`: Condition `status != 0`, Action `Execute`, Path `/root/ntfy-alert.sh`.
 5. Service Settings → built-in `Gateway_Alert` entry: Enable service checks, Type Custom, Path `/root/wan-check.sh`, Tests `GatewayAlert`. Delete the lowercase duplicate `gateway_alert`. Apply, then `monit -t -c /usr/local/etc/monitrc` → "Control file syntax OK"; `monit status Gateway_Alert` shows the last output.
-6. Test: System → Gateways → Configuration → WAN_DHCP → "Mark Gateway as Down", save/apply, wait for the ping; untick for the "back up" ping. Down ping tested OK 2026-11-11.
+6. Test: System → Gateways → Configuration → WAN_DHCP → "Mark Gateway as Down", save/apply, wait for the ping; untick for the "back up" ping. Both tested OK 2026-11-11.
 
 Firmware updates are manual on OPNsense (System → Firmware), so there's nothing to alert on there. Uptime Kuma already pings OPNsense's LAN address.
