@@ -569,3 +569,320 @@ echo '0 9 * * 0 root /usr/local/bin/ntfy-update-checks.sh' > /etc/cron.d/ntfy-up
 Run each once by hand. Run from a terminal, the disk script prints every item it checked with its %. To test the send path with one quiet ping: `touch /var/lib/ntfy-checks/disk/host_ && /usr/local/bin/ntfy-disk-checks.sh` should give "Disk OK: host /".
 
 Installed and tested 2026-11-12: first disk run showed everything under 85% (highest CT 105 Immich at 74%), the update check found nothing waiting, and both the "Disk OK" test and the smartd `-M test` ping arrived on the phone.
+
+### ntfy alerts: logins, Tailscale, Kometa, Pi-hole sync, TerraMaster
+
+Added 2026-11-12 (fourth batch). Same topic `homelab1-alerts-3d1ef2b124a1`. Paste-ready installers are in the project files under `ntfy-batch4/` (`install-proxmox.sh`, `install-terramaster.sh`, `opnsense-login-check.sh`, `SETUP.md`). Tested 2026-11-12: nebula-sync failure ping, Proxmox SSH login ping, OPNsense login ping, Kometa check (OK on the 2026-11-11 run), Tailscale table, TerraMaster check (all disks SMART PASSED, "reconnected" ping).
+
+| Alert | Where it runs | When |
+|---|---|---|
+| Proxmox SSH and web UI logins (and failures) | host, `ntfy-login-watch.service` | live |
+| Tailscale server offline 2 checks in a row, any key expiring within 7 days | host cron `/etc/cron.d/ntfy-tailscale-checks` | every 10 min |
+| Kometa 05:00 run missing or not finished | host cron `/etc/cron.d/ntfy-kometa-check` | daily 08:00 |
+| TerraMaster RAID degraded/rebuilding, SMART, bad sectors, disk > 50°C, volume > 85% | host cron `/etc/cron.d/ntfy-nas-checks` | every 30 min |
+| nebula-sync failed | CT 102, nebula-sync's own webhook | each hourly sync |
+| OPNsense web UI and SSH logins (and failures) | OPNsense Monit `LoginCheck` | every 60 s |
+
+**Proxmox logins.** The watcher follows `journalctl -u ssh` and `/var/log/pveproxy/access.log` (`POST /api2/json/access/ticket`, 200 = login, other = failure). An open web UI tab renews its ticket every 15 minutes, so a web login pings once per IP and stays quiet until that IP is idle for 2 hours. Failures ping at most once per 10 minutes per IP. Logins over Tailscale or from 192.168.5.x show as `192.168.4.1` because they come through OPNsense.
+
+`/usr/local/bin/ntfy-login-watch.sh`:
+
+```bash
+#!/bin/bash
+# Runs as a service. Pings ntfy on Proxmox SSH logins and web UI logins, and on failed attempts.
+# A web UI tab renews its ticket every ~15 min, so a web login from an IP pings once,
+# then stays quiet until that IP has been idle for 2 hours.
+set -u
+NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+STATE=/run/ntfy-login-watch; mkdir -p "$STATE"
+LOG=/var/log/ntfy-checks.log
+QUIET_WEB=7200   # sliding window per IP for successful web logins
+QUIET=600        # per IP for SSH logins and for failed attempts
+
+notify() {  # notify <priority> <tags> <title> <message>
+  curl -fsS -m 20 -H "Priority: $1" -H "Tags: $2" -H "Title: $3" -d "$4" "$NTFY" >/dev/null \
+    || echo "$(date '+%F %T') ntfy send failed: $3" >> "$LOG"
+}
+# due <key> <seconds> <sliding 0|1>: true when <key> hasn't fired within <seconds>.
+# sliding=1 also restarts the quiet period on every hit (used for web sessions).
+due() {
+  local f="$STATE/$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' _)" now last
+  now=$(date +%s); last=$(cat "$f" 2>/dev/null || echo 0)
+  if [ $((now-last)) -ge "$2" ]; then echo "$now" > "$f"; return 0; fi
+  [ "$3" = 1 ] && echo "$now" > "$f"; return 1
+}
+RE_WEB='"POST /api2/json/access/ticket[^"]*" ([0-9]{3})'
+RE_SSH_OK='Accepted ([^ ]+) for ([^ ]+) from ([^ ]+)'
+RE_SSH_BAD='(Failed [a-z-]+ for (invalid user )?|Invalid user )([^ ]*) from ([^ ]+)'
+
+{ journalctl -f -n0 -o cat -u ssh.service -u sshd.service &
+  tail -n0 -F /var/log/pveproxy/access.log 2>/dev/null &
+  wait; } |
+while IFS= read -r l; do
+  if [[ $l =~ $RE_WEB ]]; then
+    code=${BASH_REMATCH[1]}; ip=${l%% *}; ip=${ip#::ffff:}
+    if [ "$code" = 200 ]; then
+      due "web-ok-$ip" $QUIET_WEB 1 && notify 3 key "Proxmox web UI login from $ip" "$l"
+    else
+      due "web-bad-$ip" $QUIET 0 && notify 4 warning "Proxmox web UI login FAILED from $ip" "HTTP $code: $l"
+    fi
+  elif [[ $l =~ $RE_SSH_OK ]]; then
+    u=${BASH_REMATCH[2]}; ip=${BASH_REMATCH[3]}
+    due "ssh-ok-$u-$ip" $QUIET 0 && notify 3 key "Proxmox SSH login: $u from $ip" "$l"
+  elif [[ $l =~ $RE_SSH_BAD ]]; then
+    ip=${BASH_REMATCH[4]}
+    due "ssh-bad-$ip" $QUIET 0 && notify 4 warning "Proxmox SSH login FAILED from $ip" "$l"
+  fi
+done
+```
+
+`/etc/systemd/system/ntfy-login-watch.service` (`systemctl enable --now ntfy-login-watch`):
+
+```ini
+[Unit]
+Description=ntfy alerts on Proxmox SSH and web UI logins
+After=network-online.target pveproxy.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/ntfy-login-watch.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Tailscale.** `WATCH=` lists the server nodes (OPNsense, both Proxmox hosts, both Pi-holes, both Plex). Phones, laptops, the Fire TV and the travel router aren't watched for offline. On 2026-11-12 none of the 15 tailnet devices showed a key expiry. Run the script by hand to see the table.
+
+`/usr/local/bin/ntfy-tailscale-checks.sh`:
+
+```bash
+#!/bin/bash
+# Every 10 min: pings ntfy when a watched tailnet device is offline 2 checks in a row
+# (and again when it's back), and once when any device's key is within 7 days of expiring.
+set -u
+NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+# Tailnet names (first part of the MagicDNS name) to watch for offline. Phones/laptops left out on purpose.
+WATCH="opnsense proxmox-homelab-1 pihole-homelab-1 plex-homelab-1 proxmox-plexserver pihole-plex-server plex-server"
+EXPIRY_DAYS=7
+STATE=/var/lib/ntfy-checks/tailscale; mkdir -p "$STATE"
+LOG=/var/log/ntfy-checks.log
+
+notify() {  # notify <priority> <tags> <title> <message>
+  curl -fsS -m 20 -H "Priority: $1" -H "Tags: $2" -H "Title: $3" -d "$4" "$NTFY" >/dev/null \
+    || echo "$(date '+%F %T') ntfy send failed: $3" >> "$LOG"
+}
+j=$(timeout 30 tailscale status --json 2>/dev/null)
+if [ "$(jq -r '.BackendState // empty' <<<"$j" 2>/dev/null)" != Running ]; then
+  echo "$(date '+%F %T') tailscale not running on the host, skipped" >> "$LOG"; exit 0
+fi
+now=$(date +%s)
+[ -t 1 ] && printf '%-26s %-7s %-6s %s\n' NAME ONLINE WATCH KEY_EXPIRY
+jq -r '([.Self] + ((.Peer // {}) | [.[]]))[]
+  | [ (if (.DNSName // "") != "" then (.DNSName | split(".")[0]) else .HostName end),
+      .HostName, (.Online | tostring), (.KeyExpiry // ""), (.LastSeen // "") ] | join("|")' <<<"$j" |
+while IFS='|' read -r name host online exp last; do
+  w=no; [[ " $WATCH " == *" $name "* ]] && w=yes
+  [ -t 1 ] && printf '%-26s %-7s %-6s %s\n' "$name" "$online" "$w" "${exp:-never}"
+  if [ "$w" = yes ]; then
+    f="$STATE/$name.offline"; n=$(cat "$f" 2>/dev/null || echo 0)
+    if [ "$online" = true ]; then
+      [ "$n" -ge 2 ] && notify 2 white_check_mark "Tailscale: $name back online" "$name is reachable on the tailnet again."
+      rm -f "$f"
+    else
+      n=$((n+1)); echo "$n" > "$f"
+      [ "$n" -eq 2 ] && notify 4 warning "Tailscale: $name offline" \
+        "$name ($host) has been offline in Tailscale for 10+ minutes. Last seen: ${last:-unknown}."
+    fi
+  fi
+  if [ -n "$exp" ] && e=$(date -d "$exp" +%s 2>/dev/null) && [ "$e" -gt 0 ]; then
+    k="$STATE/$name.expiry"; left=$(( (e-now)/86400 ))
+    if [ "$e" -le "$now" ]; then
+      [ "$(cat "$k" 2>/dev/null)" = "expired $exp" ] || { echo "expired $exp" > "$k"
+        notify 5 rotating_light "Tailscale key EXPIRED: $name" \
+          "$name dropped off the tailnet when its key expired ($exp). Log it in again with: tailscale up --force-reauth"; }
+    elif [ "$e" -lt $((now + EXPIRY_DAYS*86400)) ]; then
+      [ "$(cat "$k" 2>/dev/null)" = "soon $exp" ] || { echo "soon $exp" > "$k"
+        notify 4 key "Tailscale key expires in ${left} day(s): $name" \
+          "Key expires $exp. Renew with: tailscale up --force-reauth on $name, or for a server use Disable key expiry in the Tailscale admin (Machines → ... menu)."; }
+    else rm -f "$k"
+    fi
+  fi
+done
+exit 0
+```
+
+**Kometa.** Only reads CT 108's `meta.log`; the config is left alone. A finished run ends with a `Finished 05:00 Run` banner and a `Start Time ... Run Time` line. Errors inside a finished run (the helper template's missing Anime library etc., 29 on 2026-11-11) don't alert.
+
+`/usr/local/bin/ntfy-kometa-check.sh`:
+
+```bash
+#!/bin/bash
+# Daily 08:00: checks that Kometa's 05:00 run in CT 108 happened and finished.
+# Only reads Kometa's log; doesn't touch its config.
+set -u
+NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+CT=108; L=/opt/kometa/config/logs/meta.log
+LOG=/var/log/ntfy-checks.log
+fail() {
+  [ -t 1 ] && echo "FAIL: $1 -- $2"
+  curl -fsS -m 20 -H "Priority: 4" -H "Tags: warning" -H "Title: Kometa: $1" \
+    -d "$2 Logs: CT 108 $L, or journalctl -u kometa." "$NTFY" >/dev/null \
+    || echo "$(date '+%F %T') ntfy send failed: Kometa $1" >> "$LOG"
+  exit 0
+}
+[ "$(pct status $CT 2>/dev/null | awk '{print $2}')" = running ] || fail "CT $CT is not running" "The container is stopped, so the 05:00 run didn't happen."
+pct exec $CT -- systemctl is-active -q kometa.service || fail "service stopped" "kometa.service isn't running in CT 108, so no daily run."
+mt=$(pct exec $CT -- stat -c %Y "$L" 2>/dev/null) || fail "no log" "$L is missing."
+[ "$mt" -ge "$(date -d 'today 05:00' +%s)" ] || fail "05:00 run didn't happen" "meta.log was last written $(date -d @"$mt" '+%F %H:%M')."
+body=$(pct exec $CT -- cat "$L")
+fin=$(grep -E 'Finished .*Run|Run Time:' <<<"$body" | tail -1 | sed 's/^[^|]*| *//; s/ *|$//')
+errs=$(grep -cE '\[(ERROR|CRITICAL)\]' <<<"$body")
+[ -n "$fin" ] || fail "05:00 run didn't finish" "No Finished/Run Time line in today's meta.log ($errs error lines). Last line: $(tail -1 <<<"$body" | cut -c1-200)"
+[ -t 1 ] && echo "OK: $fin ($errs error/critical lines, not alerted)"
+exit 0
+```
+
+**TerraMaster (192.168.4.180).** TOS 4.2.44 on an F4-210 (aarch64, 1 GB), RAID 5 `md0` over sdb-sde (sda is the boot flash; md8/md9 are TOS system mirrors that always show `[24/4]`). SSH is on in Control Panel → Terminal & SNMP, **port 9222**, local network only.
+
+- The host logs in as **krusnix** with key `/root/.ssh/terramaster` (`ssh-copy-id -p 9222 -i /root/.ssh/terramaster.pub krusnix@192.168.4.180`). Don't use root: TOS locks root after 5 failed logins (it happened during setup).
+- `smartctl` needs root, so `/etc/sudoers` on the NAS has `krusnix ALL=(root) NOPASSWD: /usr/sbin/smartctl` appended (backup `/etc/sudoers.bak`). TOS has no `visudo` or `/etc/sudoers.d`, so edit it from an open `sudo -s` shell and test with `su krusnix -c 'sudo -n /usr/sbin/smartctl -H /dev/sdb'` before closing it.
+- A TOS update may reset the key or sudoers line. The check then pings "TerraMaster checks can't log in" (or logs "SMART health unreadable" in `/var/log/ntfy-checks.log`); redo the two steps above.
+- Sleeping disks are skipped (`smartctl -n standby`).
+
+`/usr/local/bin/ntfy-nas-checks.sh`:
+
+```bash
+#!/bin/bash
+# Every 30 min: SSHes into the TerraMaster (TOS 4, 4 disks, RAID5 md0) and pings ntfy when
+# a RAID array is degraded or rebuilding, a disk fails SMART or gains bad sectors, a disk runs
+# hot, or the volume passes 85%. Each problem alerts when it starts and when it clears.
+# Sleeping disks are skipped (smartctl -n standby), so this never wakes them.
+set -u
+NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+NAS="ssh -p 9222 -i /root/.ssh/terramaster -o BatchMode=yes -o ConnectTimeout=15 krusnix@192.168.4.180"
+DISKS=4; LIMIT=85; TEMP_LIMIT=50
+STATE=/var/lib/ntfy-checks/nas; mkdir -p "$STATE"
+LOG=/var/log/ntfy-checks.log
+
+notify() {  # notify <priority> <tags> <title> <message>
+  curl -fsS -m 20 -H "Priority: $1" -H "Tags: $2" -H "Title: $3" -d "$4" "$NTFY" >/dev/null \
+    || echo "$(date '+%F %T') ntfy send failed: $3" >> "$LOG"
+}
+# flag <key> <0|1> <priority> <title if bad> <message if bad> <title when cleared>
+flag() {
+  local f="$STATE/$1"
+  if [ "$2" -eq 1 ]; then
+    [ -e "$f" ] || { touch "$f"; notify "$3" warning "$4" "$5"; }
+  elif [ -e "$f" ]; then
+    rm -f "$f"; notify 2 white_check_mark "$6" "Back to normal."
+  fi
+}
+
+# Runs on the TerraMaster (busybox sh). Prints MD / SMART / DF lines.
+REMOTE='
+for m in $(awk "/^md/ {print \$1}" /proc/mdstat); do
+  st=$(awk -v m=$m "\$1==m {getline; print \$NF; exit}" /proc/mdstat)
+  act=$(awk -v m=$m "\$1==m {f=1; next} f && (/^md/ || /^\$/) {exit} f && /recovery|resync|reshape/ {print \$2; exit}" /proc/mdstat)
+  echo "MD $m $(echo $st | tr -cd U | wc -c) $st ${act:-idle}"
+done
+for d in $(grep -o "sd[a-z]*" /proc/mdstat | sort -u); do
+  out=$(sudo -n /usr/sbin/smartctl -H -A -n standby /dev/$d 2>&1)
+  if echo "$out" | grep -qi "STANDBY\|SLEEP"; then echo "SMART $d standby"; continue; fi
+  h=$(echo "$out" | awk -F: "/overall-health|Health Status/ {gsub(/ /,\"\",\$2); print \$2}")
+  a() { echo "$out" | awk -v n=$1 "\$2==n {print \$10+0; f=1} END {if (!f) print 0}"; }
+  echo "SMART $d ${h:-UNKNOWN} $(a Reallocated_Sector_Ct) $(a Current_Pending_Sector) $(a Offline_Uncorrectable) $(a Temperature_Celsius)"
+done
+df -P /mnt/md0 | awk "NR==2 {print \"DF\", \$6, \$5}"
+'
+
+if ! out=$($NAS "$REMOTE" 2>&1); then
+  flag nas-ssh 1 3 "TerraMaster checks can't log in" \
+    "SSH to 192.168.4.180:9222 failed: $(tail -1 <<<"$out"). SSH may be off, or a TOS update removed the key (re-run ssh-copy-id from the runbook)." "TerraMaster checks reconnected"
+  exit 0
+fi
+flag nas-ssh 0 3 "" "" "TerraMaster checks reconnected"
+[ -t 1 ] && echo "$out"
+
+while read -r kind a b c d e f; do
+  case "$kind" in
+    MD)  # a=array b=U count c=[UUUU] d=activity
+      flag "md-$a-degraded" $([ "$b" -lt "$DISKS" ] && echo 1 || echo 0) 5 "TerraMaster RAID $a DEGRADED" \
+        "$a shows $c: only $b of $DISKS disks active. Check Storage Manager at http://192.168.4.180:8181 and replace the failed disk." "TerraMaster RAID $a healthy"
+      flag "md-$a-sync" $([ "$d" != idle ] && echo 1 || echo 0) 3 "TerraMaster RAID $a: $d running" \
+        "$a is doing a $d. It's slower until it finishes; don't pull disks." "TerraMaster RAID $a $d finished" ;;
+    SMART)  # a=disk b=health c=realloc d=pending e=uncorrectable f=temp
+      [ "$b" = standby ] && continue
+      sb=1; case "$b" in PASSED|OK) sb=0 ;; UNKNOWN) sb=0; echo "$(date '+%F %T') NAS $a SMART health unreadable" >> "$LOG" ;; esac
+      flag "smart-$a" $sb 5 \
+        "TerraMaster disk $a SMART: $b" "Disk $a reports SMART health $b. Back up and plan a replacement." "TerraMaster disk $a SMART OK"
+      bad=$((c+d+e)); old=$(cat "$STATE/$a-badsectors" 2>/dev/null || echo "$bad"); echo "$bad" > "$STATE/$a-badsectors"
+      [ "$bad" -gt "$old" ] && notify 4 warning "TerraMaster disk $a: new bad sectors" \
+        "Reallocated $c, pending $d, uncorrectable $e (was $old total). Watch it; replace if it keeps rising."
+      flag "temp-$a" $([ "$f" -ge "$TEMP_LIMIT" ] && echo 1 || echo 0) 4 "TerraMaster disk $a at ${f}°C" \
+        "Disk $a is at ${f}°C (limit $TEMP_LIMIT). Check the fan and airflow." "TerraMaster disk $a temperature OK" ;;
+    DF)  # a=mount b=percent
+      p=${b%\%}
+      flag "df-md0" $([ "$p" -ge "$LIMIT" ] && echo 1 || echo 0) 4 "TerraMaster volume ${p}% full" \
+        "$a is at ${p}% (alert limit ${LIMIT}%)." "TerraMaster volume back under ${LIMIT}%" ;;
+  esac
+done <<<"$out"
+exit 0
+```
+
+**nebula-sync (CT 102).** nebula-sync 0.11.3 has failure webhooks. Added to `/etc/nebula-sync.env`, then `systemctl restart nebula-sync`:
+
+```
+WEBHOOK_SYNC_FAILURE_URL="https://ntfy.sh/homelab1-alerts-3d1ef2b124a1"
+WEBHOOK_SYNC_FAILURE_HEADERS="Title:Pi-hole sync failed,Priority:4,Tags:warning"
+WEBHOOK_SYNC_FAILURE_BODY="nebula-sync on CT 102 could not sync the Pi-holes. Check: journalctl -u nebula-sync -n 50"
+```
+
+Test without touching the real config (one run against a wrong primary password):
+
+```bash
+cp /etc/nebula-sync.env /root/ns-test.env
+sed -i -e 's/^\(PRIMARY="\{0,1\}[^|]*|\)[^"]*/\1wrong-password/' -e '/^CRON=/d' /root/ns-test.env
+systemd-run --wait -P -p EnvironmentFile=/root/ns-test.env /usr/local/bin/nebula-sync run; rm -f /root/ns-test.env
+```
+
+**OPNsense logins.** Logins are in the audit log (`/var/log/audit/latest.log` → `audit_YYYYMMDD.log`, about 50 MB a day, so don't grep all of `/var/log/audit/*.log`). Web: `/index.php: Successful login for user 'root' from: ...`; SSH: `sshd-session ... Accepted publickey for root from ...`. The script reads only the bytes added since its last run.
+
+`/root/login-check.sh` (`chmod 755`, run once by hand to record the log ends):
+
+```sh
+#!/bin/sh
+# OPNsense: save as /root/login-check.sh, chmod 755. Monit runs it every 60 s.
+# Pings ntfy for each web UI or SSH login and failed attempt added to the logs since the last run.
+# Reads only the new bytes (the audit log can be 50 MB a day). Always exits 0.
+NTFY=https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
+STATE=/var/db/login-check; mkdir -p $STATE
+PAT="Successful login for user|authentication error|could not authenticate|sshd-session.*(Accepted |Failed |Invalid user )"
+send() {  # send <priority> <tags> <title> <message>
+  /usr/local/bin/curl -fsS -m 20 -H "Priority: $1" -H "Tags: $2" -H "Title: $3" -d "$4" $NTFY >/dev/null 2>&1
+}
+for f in /var/log/audit/latest.log /var/log/system/latest.log; do
+  [ -f "$f" ] || continue
+  real=$(realpath "$f"); key=$STATE/$(echo "$f" | tr / _)
+  size=$(stat -f %z "$real")
+  set -- $(cat "$key" 2>/dev/null)          # last run: <file> <byte offset>
+  if [ -z "$1" ]; then off=$size            # first run: skip old lines
+  elif [ "$1" = "$real" ] && [ "$2" -le "$size" ]; then off=$2
+  else off=0; fi                            # new day's file
+  echo "$real $size" > "$key"
+  [ "$off" -lt "$size" ] || continue
+  tail -c +$((off+1)) "$real" | head -c $((size-off)) | grep -E "$PAT" | head -5 | while IFS= read -r l; do
+    msg=$(echo "$l" | sed 's/^.*\] //')
+    case "$msg" in
+      *error*|*Failed*|*Invalid*|*"could not"*) send 4 warning "OPNsense login FAILED" "$msg" ;;
+      *) send 3 key "OPNsense login" "$msg" ;;
+    esac
+  done
+done
+exit 0
+```
+
+Services → Monit → Service Settings → `LoginCheck`: Type Custom, Path `/root/login-check.sh`, Tests `GatewayAlert` (OPNsense won't save a Custom check without a test; it never fires because the script always exits 0).
+
+**plex-proxmox Plex (192.168.4.49).** Tautulli watches one server, so plex-proxmox gets its own Tautulli LXC (helper script, on plex-proxmox) with the same two ntfy agents as CT 106 (outages priority 5, Playback Start priority 2), subjects prefixed `plex-server:`. Pending as of 2026-11-12.
