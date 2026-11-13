@@ -263,18 +263,28 @@ Added 2026-11-12. One page at `http://192.168.4.126:3000` with a tile for every 
 
 ### CT 112 Grafana and Prometheus
 
-Added 2026-11-13. Grafana at `http://192.168.4.232:3000` graphs both Proxmox hosts, the NVIDIA GPU, the UPS, the four Pi-holes and OPNsense. Prometheus in the same CT (`http://192.168.4.232:9090/targets`) scrapes every 30 s and keeps 30 days. Dashboards only: alerts stay with ntfy, Beszel and Uptime Kuma.
+Added 2026-11-13. Grafana at `http://192.168.4.232:3000` graphs both Proxmox hosts, the NVIDIA GPU, the Intel iGPU, the UPS, the four Pi-holes, OPNsense, unraid-1 (host and Docker containers) and Plex streams on all three Plex servers. Prometheus in the same CT (`http://192.168.4.232:9090/targets`) scrapes every 30 s and keeps 30 days. Dashboards only: alerts stay with ntfy, Beszel and Uptime Kuma.
 
 - **Install:** helper script `ct/grafana.sh`, Advanced: CT 112, hostname `grafana`, 2 cores, 4 GB, 20 GB disk, DHCP. MAC `BC:24:11:50:53:A5`, reserved in OPNsense at .232 (the plex-proxmox firewall rule depends on this address). First login `admin` / `admin`.
 - **Config:** run [`grafana/setup-homelab1.sh`](grafana/setup-homelab1.sh) on homelab1-proxmox as root. Safe to re-run. It:
   - installs `prometheus-node-exporter` (:9100) and `nvidia_gpu_exporter` (:9835, `/usr/local/bin`, unit `nvidia_gpu_exporter.service`) on the host;
+  - installs `intel-gpu-tools` and `/usr/local/bin/intel-gpu-textfile` (unit `intel-gpu-textfile.service`) on the host: it runs `intel_gpu_top -J` and writes `intel_gpu_*` metrics to `/var/lib/prometheus/node-exporter/intel_gpu.prom`, which node exporter serves;
   - creates the read-only API token `prometheus@pve!metrics` (PVEAuditor) and replaces it on each run;
-  - in the CT: Prometheus from apt, `prometheus-pve-exporter` in the venv `/opt/pve-exporter` (127.0.0.1:9221, reads both hosts), `nut_exporter` (127.0.0.1:9199, NUT server 192.168.4.141, ups `cyberpower`) and `pihole_exporter` (127.0.0.1:9617, all four Pi-holes, passwords copied from the nebula-sync env in CT 102);
-  - provisions the Prometheus data source (uid `prometheus`) and the grafana.com dashboards 1860 Node Exporter Full (the two Proxmox hosts), 4260 Node Exporter BSD (OPNsense: it is FreeBSD, so 1860 shows no memory data for it), 10347 Proxmox via Prometheus, 14574 Nvidia GPU Metrics, 19308 NUT and 10176 Pi-hole Exporter into the folder **Homelab**;
+  - in the CT: Prometheus from apt, `prometheus-pve-exporter` in the venv `/opt/pve-exporter` (127.0.0.1:9221, reads both hosts), `nut_exporter` (127.0.0.1:9199, NUT server 192.168.4.141, ups `cyberpower`) `pihole_exporter` (127.0.0.1:9617, all four Pi-holes, passwords copied from the nebula-sync env in CT 102) and `/usr/local/bin/tautulli-exporter` (127.0.0.1:9487, a small Python script that reads `get_activity` from each Tautulli in `/etc/tautulli-exporter.conf`; the homelab1 key comes from CT 106 and the plex-proxmox key from Homepage's `/etc/homepage/vars.env` in CT 111);
+  - provisions the Prometheus data source (uid `prometheus`) and the grafana.com dashboards 1860 Node Exporter Full (the two Proxmox hosts), 4260 Node Exporter BSD (OPNsense: it is FreeBSD, so 1860 shows no memory data for it), 10347 Proxmox via Prometheus, 14574 Nvidia GPU Metrics, 19308 NUT, 10176 Pi-hole Exporter and 14282 cAdvisor (unraid-1 containers), plus two hand-made dashboards the script generates, **Plex Streams** and **Intel iGPU**, into the folder **Homelab**;
   - prints which targets are up.
 - **plex-proxmox:** run [`grafana/setup-plex-proxmox.sh`](grafana/setup-plex-proxmox.sh) there. It installs node exporter, allows 192.168.4.232 to reach port 9100 (the Proxmox firewall is enabled on that host; the rule is under plex-proxmox → Firewall), adds the same token and prints a `pct exec 112 -- /usr/local/bin/pve-exporter-conf plex '<token>'` line to paste on homelab1-proxmox.
+- **unraid-1 (192.168.5.14):** two things on Unraid, then it shows in Node Exporter Full as `unraid-1` and in the cAdvisor dashboard.
+  - Apps → install the **Prometheus Node Exporter** plugin (ich777). It listens on :9100.
+  - cAdvisor for per-container numbers, from the Unraid terminal (host port 9180):
+    ```bash
+    docker run -d --name=cadvisor --restart=unless-stopped -p 9180:8080 --privileged --device=/dev/kmsg \
+      -v /:/rootfs:ro -v /var/run:/var/run:ro -v /sys:/sys:ro -v /var/lib/docker/:/var/lib/docker:ro -v /dev/disk/:/dev/disk:ro \
+      gcr.io/cadvisor/cadvisor:v0.49.1 --docker_only=true --housekeeping_interval=30s
+    ```
+  - Unraid's Tautulli: `pct exec 112 -- /usr/local/bin/tautulli-exporter-add unraid-1 http://192.168.5.14:8181 '<API key>'` on homelab1-proxmox (key under Tautulli → Settings → Web Interface). The script keeps it on re-runs.
 - **OPNsense:** System → Firmware → Plugins → install `os-node_exporter`, then Services → Prometheus Exporter: Enabled, listen address `192.168.4.1`, port `9100`, tick CPU, Execution, Filesystem, Load Average, Memory, Network Interface, Current Time and Device Statistics (Interrupts, NTP and ZFS off), Save.
-- **Files in the CT:** `/etc/prometheus/prometheus.yml` (targets), `/etc/default/prometheus` (retention), `/etc/prometheus/pve-tokens.env` (both API tokens; `pve-exporter-conf` rebuilds `pve.yml` from it), `/etc/pihole-exporter.env` (Pi-hole passwords), `/var/lib/grafana/dashboards/*.json`, `/etc/grafana/provisioning/{datasources/prometheus.yml,dashboards/homelab.yml}`. Services: `prometheus`, `pve-exporter`, `nut-exporter`, `pihole-exporter`, `grafana-server`.
+- **Files in the CT:** `/etc/prometheus/prometheus.yml` (targets), `/etc/default/prometheus` (retention), `/etc/prometheus/pve-tokens.env` (both API tokens; `pve-exporter-conf` rebuilds `pve.yml` from it), `/etc/pihole-exporter.env` (Pi-hole passwords), `/etc/tautulli-exporter.conf` (Tautulli `name|url|key` lines), `/var/lib/grafana/dashboards/*.json`, `/etc/grafana/provisioning/{datasources/prometheus.yml,dashboards/homelab.yml}`. Services: `prometheus`, `pve-exporter`, `nut-exporter`, `pihole-exporter`, `tautulli-exporter`, `grafana-server`.
 - **Updates:** the helper's `update` covers Grafana and apt covers Prometheus. The three exporters are fixed at the version the script downloaded; re-run the script to pull the latest.
 - **Homepage:** Grafana tile in the Monitoring group, showing Prometheus targets up/down.
 - If a Pi-hole password changes, re-run the script (it reads them from nebula-sync again).
