@@ -130,7 +130,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 109 | beszel | 192.168.4.217:8090 (DHCP reserved) | Resource monitoring hub (CPU/memory/disk alerts) |
 | 110 | uptimekuma | 192.168.4.134:3001 (DHCP reserved) | Service up/down checks |
 | 111 | homepage | 192.168.4.126:3000 (DHCP reserved) | Homepage dashboard: every service on both hosts and unraid-1 |
-| 112 | grafana | 192.168.4.232:3000 | Grafana + Prometheus: graphs and 30 days of history |
+| 112 | grafana | 192.168.4.232:3000 (DHCP reserved) | Grafana + Prometheus: graphs and 30 days of history |
 
 ### CT 102 Pi-hole and nebula-sync
 
@@ -265,7 +265,7 @@ Added 2026-11-12. One page at `http://192.168.4.126:3000` with a tile for every 
 
 Added 2026-11-13. Grafana at `http://192.168.4.232:3000` graphs both Proxmox hosts, the NVIDIA GPU, the UPS, the four Pi-holes and OPNsense. Prometheus in the same CT (`http://192.168.4.232:9090/targets`) scrapes every 30 s and keeps 30 days. Dashboards only: alerts stay with ntfy, Beszel and Uptime Kuma.
 
-- **Install:** helper script `ct/grafana.sh`, Advanced: CT 112, hostname `grafana`, 2 cores, 4 GB, 20 GB disk, DHCP. MAC `BC:24:11:50:53:A5`, reserve .232 in OPNsense. First login `admin` / `admin`.
+- **Install:** helper script `ct/grafana.sh`, Advanced: CT 112, hostname `grafana`, 2 cores, 4 GB, 20 GB disk, DHCP. MAC `BC:24:11:50:53:A5`, reserved in OPNsense at .232 (the plex-proxmox firewall rule depends on this address). First login `admin` / `admin`.
 - **Config:** run [`grafana/setup-homelab1.sh`](grafana/setup-homelab1.sh) on homelab1-proxmox as root. Safe to re-run. It:
   - installs `prometheus-node-exporter` (:9100) and `nvidia_gpu_exporter` (:9835, `/usr/local/bin`, unit `nvidia_gpu_exporter.service`) on the host;
   - creates the read-only API token `prometheus@pve!metrics` (PVEAuditor) and replaces it on each run;
