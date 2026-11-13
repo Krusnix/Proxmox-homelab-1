@@ -959,7 +959,13 @@ New guests get the `local:snippets/dependency-check.sh` hookscript within 15 min
 
 **ping-instances (community monitor-all add-on).** Left as is. It only watches guests tagged `mon-restart`, and none are.
 
-**Plex (CT 103 on plex-proxmox, data in `/srv/plex`).** Video previews, chapter thumbnails, loudness analysis, intro and credits detection are all set to "as soon as possible", so they run outside the 23:00 to 02:00 Butler window and use about two cores while working through the library. Kept that way on purpose for now (2026-11-13); switch them to "as a scheduled task" in Settings > Library if the host needs the CPU back.
+**Plex (CT 103 on plex-proxmox, data in `/srv/plex`, 40 GB appdata LV).** The host is an Intel N150 and ~15,000 of ~16,000 videos are AV1, which Plex decodes in software for analysis. With every analysis task on "as soon as possible", Plex kept two cores busy around the clock, and video preview thumbnails (~11 MB per file, ~170 GB for the whole library at ~20 files/day) would have filled the appdata disk. Changed 2026-11-13 through Plex's settings API (no restart), same as Settings > Library in the web UI:
+
+- `GenerateBIFBehavior=never` (video preview thumbnails off; the 14 GB already made were kept)
+- `scheduled` (Butler window 23:00 to 02:00) for `GenerateChapterThumbBehavior`, `LoudnessAnalysisBehavior`, `GenerateIntroMarkerBehavior`, `GenerateCreditsMarkerBehavior`, `GenerateAdMarkerBehavior`, `GenerateVADBehavior`, `MusicAnalysisBehavior`
+- `logDebug=0` (debug logs were rotating every 30 to 60 minutes)
+
+From inside CT 103: `curl -X PUT "http://127.0.0.1:32400/:/prefs?GenerateBIFBehavior=never&X-Plex-Token=$TOKEN"` (token is `PlexOnlineToken` in `Preferences.xml`). Result: host went from 0% to ~95% idle, and the HA VM's CPU fell from ~86% to ~4% (it was mostly waiting on the starved host). Expect higher CPU overnight while the loudness/marker backlog works through.
 
 Undo:
 
