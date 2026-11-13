@@ -4,6 +4,8 @@
 #   DOMAIN=krusnix.net NPM_IP=192.168.4.156 NPM_USER=you@mail NPM_PASS='...' \
 #   AK_TOKEN='<authentik API token>' AK_USER=trent bash setup-sso.sh
 #   DOMAIN=krusnix.net NPM_IP=192.168.4.156 bash setup-sso.sh --check
+#   DOMAIN=krusnix.net NPM_IP=192.168.4.156 NPM_USER=.. NPM_PASS=.. bash setup-sso.sh --undo-gate
+#     (removes the Authentik gate from every GATED name in NPM; nothing else changes)
 # What it does (safe to re-run; it only adds what's missing):
 #   1. Authentik: a forward-auth provider for every name under DOMAIN (embedded outpost),
 #      an OIDC client per app with its own SSO button, all limited to "authentik Admins",
@@ -19,6 +21,7 @@ set -euo pipefail
 AK_IP=${AK_IP:-192.168.4.229}
 AUTH="auth.$DOMAIN"
 CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
+UNDO=0; [ "${1:-}" = "--undo-gate" ] && UNDO=1
 NTFY_TOPIC=homelab1-alerts-3d1ef2b124a1
 
 # name  bypass   (bypass: none | arr | prowlarr | api)
@@ -73,8 +76,10 @@ if [ $CHECK = 1 ]; then
   echo "$bad problems."
   exit 0
 fi
-: "${NPM_USER:?set NPM_USER}" "${NPM_PASS:?set NPM_PASS}" "${AK_TOKEN:?set AK_TOKEN}" "${AK_USER:?set AK_USER (your Authentik username)}"
+: "${NPM_USER:?set NPM_USER}" "${NPM_PASS:?set NPM_PASS}"
+[ $UNDO = 1 ] || : "${AK_TOKEN:?set AK_TOKEN}" "${AK_USER:?set AK_USER (your Authentik username)}"
 
+if [ $UNDO = 0 ]; then
 ### 0. Every machine that talks to Authentik must resolve auth.DOMAIN to the proxy
 ensure_host() {   # ensure_host [CTID]
   local run=(bash -c); [ -n "${1:-}" ] && run=(pct exec "$1" -- bash -c)
@@ -226,6 +231,7 @@ if pct status 111 2>/dev/null | grep -q running && ! pct exec 111 -- grep -q '^H
   fi
 fi
 
+fi  # UNDO = 0
 ### 2. NPM: Authentik login in front of the gated names
 NPM="http://$NPM_IP:81/api"
 TOKEN=$(curl -fsS -m 10 -X POST "$NPM/tokens" -H 'Content-Type: application/json' \
@@ -286,6 +292,15 @@ location @goauthentik_proxy_signin {
 }
 EOF
 }
+if [ $UNDO = 1 ]; then
+  while read -r n _; do
+    [ -z "$n" ] && continue
+    id=$(jq -r --arg d "$n.$DOMAIN" '.[]|select(.domain_names|index($d))|.id' <<<"$hostlist" | head -1)
+    [ -n "$id" ] || continue
+    npm -X PUT "$NPM/nginx/proxy-hosts/$id" -d '{"advanced_config":""}' >/dev/null && echo "  NPM: $n.$DOMAIN gate removed"
+  done <<<"$GATED"
+  exit 0
+fi
 changed=0
 while read -r n bp; do
   [ -z "$n" ] && continue
