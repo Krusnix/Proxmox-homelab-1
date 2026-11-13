@@ -206,6 +206,7 @@ onboot: 1
 
    - Then `mount /mnt/immich-data`, `pct stop 105`, `pct set 105 -mp1 /mnt/immich-data,mp=/immich-data`, `pct start 105`, and `ln -sfn /immich-data/<name> /opt/immich/upload/<name>` for the four folders. Test as immich: `touch -d 2020-01-01 /opt/immich/upload/upload/.t` must succeed. The whole fix is scripted in `fix-upload-mount.sh` (project files `immich-uploads/`).
    - If the Unraid password changes, update `/root/.smb-unraid-immich` too.
+   - After running the helper script's `update`, check `ls -l /opt/immich/upload/` in the CT. If the four symlinks point back at `/unraid/...`, uploads will fail the same way again.
 6. `pct reboot 105`, then check `nvidia-smi` as the immich user, `ls -l /dev/dri`, and `http://<ip>:2283/api/server/ping` → `pong`.
 
 **Web UI settings:**
