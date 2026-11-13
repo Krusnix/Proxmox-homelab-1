@@ -129,6 +129,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 108 | kometa | 192.168.4.213 (DHCP reserved) | Plex collections/overlays, no GPU or shares |
 | 109 | beszel | 192.168.4.217:8090 (DHCP reserved) | Resource monitoring hub (CPU/memory/disk alerts) |
 | 110 | uptimekuma | 192.168.4.134:3001 (DHCP reserved) | Service up/down checks |
+| homepage | homepage | 192.168.4.126:3000 (DHCP reserved) | Homepage dashboard: every service on both hosts and unraid-1 |
 
 ### CT 102 Pi-hole and nebula-sync
 
@@ -246,6 +247,18 @@ Added 2026-11-11 after Tdarr (CT 104) ran out of memory unnoticed. Both installe
   - HTTP monitors: Proxmox `https://192.168.4.209:8006` (ignore TLS), Plex `http://192.168.4.120:32400/identity`, Tdarr `:8265`, Immich `http://192.168.4.163:2283/api/server/ping`, Tautulli `:8181`, Tunarr `:8000`, Kometa `:7171`, Beszel `:8090`.
   - DNS monitors (resolve google.com): Pi-holes 192.168.4.145, 192.168.4.48, 192.168.5.53, 192.168.4.141.
   - Ping monitors: OPNsense 192.168.4.1, Unraid 192.168.5.14, TerraMaster 192.168.4.180, pve-ups 192.168.4.205.
+
+### Homepage dashboard
+
+Added 2026-11-12. One page at `http://192.168.4.126:3000` with a tile for every service on homelab1-proxmox, plex-proxmox, unraid-1 (including its Docker containers), the Pi-holes, OPNsense, the NAS boxes, the UPS and ntfy. Tiles open each web UI in a new tab, show a status dot, and most show live numbers.
+
+- **Install:** helper script `ct/homepage.sh`, defaults (Debian 13, 2 cores, 4 GB, 6 GB disk), hostname `homepage`, DHCP reserved in OPNsense at .126.
+- **Config:** run [`homepage/setup-homelab1.sh`](homepage/setup-homelab1.sh) on homelab1-proxmox as root. It writes `/opt/homepage/config/*.yaml` in the CT (services, settings, widgets, bookmarks, docker), creates the read-only API token `homepage@pve!dashboard` (PVEAuditor), and copies the Plex token (CT 103), Tautulli key (CT 106), Tdarr key (`/root/.ntfy-checks.env`) and Pi-hole passwords (nebula-sync env in CT 102). Re-running it rewrites the config, replaces the token and keeps the other keys. To change the layout, edit the script here and re-run it rather than editing the CT by hand.
+- **plex-proxmox:** run [`homepage/setup-plex-proxmox.sh`](homepage/setup-plex-proxmox.sh) there (192.168.4.215, node `plex-proxmox`). It adds the same read-only token and prints `homepage-setvar` lines to paste into the Homepage CT (host IP, token, plex-server Plex token, Tautulli .198 key).
+- **Keys:** stored as `HOMEPAGE_VAR_*` in `/etc/homepage/vars.env` in the CT, loaded by the drop-in `/etc/systemd/system/homepage.service.d/vars.conf`. That's outside `/opt/homepage`, so the helper's `update` keeps them. Set with `homepage-setvar NAME 'value'`, apply with `homepage-setvar --restart`, list gaps with `homepage-setvar --missing`. Keys made by hand: Immich (`server.statistics` only), OPNsense (user `homepage`, privileges Diagnostics: System Activity + Reporting: Traffic), Unraid (VIEWER role), Beszel login. Uptime Kuma reads its status page with slug `homelab`.
+- **UPS tile:** reads PVE-UPS's public `http://192.168.4.205:8080/api/status` (battery, load, runtime, power source).
+- **unraid-1 Docker:** Unraid runs the `socket-proxy` container (`wollomatic/socket-proxy`), host port 2375, Allowed Clients `192.168.4.126`, Allow GET `(/v1\..{1,2})?/(_ping|version|info|containers/json|containers/[^/]+/(json|stats))`, Allow HEAD `(/v1\..{1,2})?/_ping`, POST empty (read-only). Homepage's `docker.yaml` calls that server `unraid-1`; tiles use the container names exactly as Docker shows them.
+- If the Homepage IP ever changes, update the socket-proxy Allowed Clients and `HOMEPAGE_ALLOWED_HOSTS` in `/opt/homepage/.env`.
 
 ### ntfy alerts: Proxmox, backups, UPS
 
