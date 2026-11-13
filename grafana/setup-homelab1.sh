@@ -524,16 +524,18 @@ dash('homelab-intel-gpu', 'Intel iGPU', [
 ], span='now-6h')
 
 # ---------- Homelab Overview: one screen, key numbers from every source ----------
-def multistat(title, exprs, x, y, w=8, h=5, unit='short', decimals=0, thresholds=None, vmax=None, orient='auto'):
-    d = {'unit': unit, 'decimals': decimals, 'noValue': '-', 'min': 0}
+def multistat(title, exprs, x, y, w=8, h=5, unit='short', decimals=0, thresholds=(), vmax=None, orient='auto',
+              base='green', overrides=()):
+    # thresholds: ((value, colour), ...) above `base`; none means always `base` (Grafana's default turns 80+ red)
+    d = {'unit': unit, 'decimals': decimals, 'noValue': '-', 'min': 0,
+         'thresholds': {'mode': 'absolute', 'steps': [{'color': base, 'value': None}] +
+                        [{'color': c, 'value': v} for v, c in thresholds]}}
     if vmax is not None:
         d['max'] = vmax
-    if thresholds:
-        d['thresholds'] = {'mode': 'absolute', 'steps': [{'color': 'green', 'value': None}] +
-                           [{'color': c, 'value': v} for v, c in thresholds]}
     return {'type': 'stat', 'title': title, 'datasource': DS, 'gridPos': {'x': x, 'y': y, 'w': w, 'h': h},
             'targets': [dict(t, instant=True) for t in targets(exprs)],
-            'fieldConfig': {'defaults': d, 'overrides': []},
+            'fieldConfig': {'defaults': d, 'overrides': [
+                {'matcher': {'id': 'byFrameRefID', 'options': ref}, 'properties': props} for ref, props in overrides]},
             'options': {'reduceOptions': {'calcs': ['lastNotNull'], 'fields': '', 'values': False},
                         'colorMode': 'value', 'graphMode': 'none', 'textMode': 'value_and_name',
                         'orientation': orient, 'justifyMode': 'auto'}}
@@ -555,13 +557,19 @@ LINUX = 'instance=~"homelab1-proxmox|plex-proxmox|unraid-1"'
 IDLE = '100 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100'
 WAN = ('max(rate(node_network_%s_bytes_total{instance="opnsense", device!~"lo.*|enc.*|pflog.*|pfsync.*|ovpn.*|wg.*|tailscale.*"}[5m])) * 8')
 GUEST = '* on (id, instance) group_left (name) pve_guest_info{type="lxc"}'
+def by_host(q):   # adds host="homelab1" / "plex-pve" so duplicate CT names (plex, pihole, pve-ups) can be told apart
+    return ('label_replace(label_replace(%s, "host", "homelab1", "instance", "192.168.4.209"), '
+            '"host", "plex-pve", "instance", "192.168.4.215")' % q)
 dash('homelab-overview', 'Homelab Overview', [
     # row 1: is anything wrong?
     multistat('Sources down', [('count(up == 0) or vector(0)', 'down')], 0, 0, w=4, h=4,
               thresholds=((1, 'red'),)),
     multistat('UPS', [('network_ups_tools_battery_charge', 'battery'), ('network_ups_tools_ups_load', 'load')],
-              4, 0, w=6, h=4, unit='percent'),
-    multistat('UPS runtime', [('network_ups_tools_battery_runtime', 'on battery')], 10, 0, w=4, h=4, unit='s'),
+              4, 0, w=6, h=4, unit='percent', base='red', thresholds=((30, 'orange'), (60, 'green')),
+              overrides=[('B', [{'id': 'thresholds', 'value': {'mode': 'absolute', 'steps': [
+                  {'color': 'green', 'value': None}, {'color': 'orange', 'value': 60}, {'color': 'red', 'value': 85}]}}])]),
+    multistat('UPS runtime', [('network_ups_tools_battery_runtime', 'on battery')], 10, 0, w=4, h=4, unit='s',
+              base='red', thresholds=((600, 'orange'), (1200, 'green'))),
     multistat('Plex streams now', [('sum(tautulli_streams) or vector(0)', 'streams'),
                                     ('sum(tautulli_streams{decision="transcode"}) or vector(0)', 'transcoding')],
               14, 0, w=5, h=4),
@@ -585,11 +593,13 @@ dash('homelab-overview', 'Homelab Overview', [
                              ('intel_gpu_power_watts{domain="gpu"}', 'watts')], 8, 11, w=8, h=5, decimals=1),
     multistat('Pi-holes (today)', [('sum(pihole_dns_queries_today)', 'queries'),
                                    ('sum(pihole_ads_blocked_today)', 'blocked'),
-                                   ('sum(pihole_ads_blocked_today) / sum(pihole_dns_queries_today) * 100', '% blocked')],
-              16, 11, w=8, h=5),
+                                   ('sum(pihole_ads_blocked_today) / sum(pihole_dns_queries_today) * 100', 'blocked share')],
+              16, 11, w=8, h=5, overrides=[('C', [{'id': 'unit', 'value': 'percent'}, {'id': 'decimals', 'value': 1}])]),
     # row 4: who is busy
-    bars('Busiest CTs: CPU (both hosts)', [('topk(8, pve_cpu_usage_ratio %s) * 100' % GUEST, '{{name}}')], 0, 16, w=8, h=9),
-    bars('Busiest CTs: memory', [('topk(8, pve_memory_usage_bytes / pve_memory_size_bytes %s) * 100' % GUEST, '{{name}}')],
+    bars('Busiest CTs: CPU (both hosts)', [(by_host('topk(8, pve_cpu_usage_ratio %s) * 100' % GUEST), '{{name}} · {{host}}')],
+         0, 16, w=8, h=9),
+    bars('Busiest CTs: memory', [(by_host('topk(8, pve_memory_usage_bytes / pve_memory_size_bytes %s) * 100' % GUEST),
+                                  '{{name}} · {{host}}')],
          8, 16, w=8, h=9),
     bars('Busiest unraid-1 containers: CPU', [('topk(8, sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[5m])) * 100)', '{{name}}')],
          16, 16, w=8, h=9, vmax=None, unit='percent', thresholds=((200, 'orange'), (400, 'red'))),
