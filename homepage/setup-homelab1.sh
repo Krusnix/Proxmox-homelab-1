@@ -477,6 +477,14 @@ cat > "$TMP/services.yaml" <<'EOF'
           type: uptimekuma
           url: http://192.168.4.134:3001
           slug: homelab
+    - Grafana:
+        icon: grafana.svg
+        href: http://192.168.4.232:3000
+        description: CT 112, graphs and 30 days of history
+        siteMonitor: http://192.168.4.232:3000
+        widget:
+          type: prometheus
+          url: http://192.168.4.232:9090
     - ntfy:
         icon: ntfy.svg
         href: https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
