@@ -59,11 +59,11 @@ pveum user add <you>@authentik && pveum acl modify / --users <you>@authentik --r
 ```
 **Grafana**: done by the script. Your SSO user is a new Grafana user (Admin via the group); the old local `admin` still works.
 
-**Immich** (Administration → Settings → Authentication Settings → OAuth): Enable; Issuer URL from `[immich]`; Client ID
-and Secret; Scope `openid email profile`; Button text `Login with Authentik`; Auto register **off** (so only existing
-Immich users can sign in; your Immich account email must match your Authentik email); Mobile redirect URI override
-**on**, `https://immich.krusnix.net/api/oauth/mobile-redirect`. Keep "Password login" enabled. The phone app needs the
-server URL `https://immich.krusnix.net` to use the SSO button.
+**Immich** (Administration → Settings → Authentication Settings → OAuth): Login with OAuth on; issuer_url
+`https://auth.krusnix.net/application/o/immich/`; client_id/secret; leave scope, RS256/none algs and the claim fields at
+their defaults (they only apply to new accounts); end_session_endpoint `https://auth.krusnix.net/application/o/immich/end-session/`;
+Button text `Login with Authentik`; Auto register **off**; Auto launch off; Mobile redirect URI override **off** (Authentik
+accepts `app.immich:///oauth-callback` directly). Keep Password Login enabled. Existing accounts link by matching email.
 
 **Audiobookshelf** (Settings → Authentication → OpenID Connect): Issuer URL from `[audiobookshelf]` → Auto-populate;
 Client ID/Secret; Button text `Login with Authentik`; Match existing users by **username**; Auto register off. Allowed
@@ -71,9 +71,10 @@ mobile redirect URIs: `audiobookshelf://oauth`. Keep Password Authentication on.
 `auth.krusnix.net`: if ABS shows "issuer discovery failed", add `--add-host=auth.krusnix.net:192.168.4.156` to the
 container's Extra Parameters.
 
-**Beszel** (`https://beszel.krusnix.net/_/` → Settings → Auth providers → OpenID Connect): Client ID/Secret; Display
-name `Authentik`; Auth URL `https://auth.krusnix.net/application/o/authorize/`, Token URL `.../application/o/token/`,
-User info URL `.../application/o/userinfo/`. Then link your existing Beszel user from its profile, or match by email.
+**Beszel** (PocketBase admin `https://beszel.krusnix.net/_/`, superuser login → Collections → users → ⚙ → OAuth2 → on →
+Add provider → OpenID Connect): Client ID/Secret; Display name `Authentik`; Auth URL `https://auth.krusnix.net/application/o/authorize/`,
+Token URL `.../application/o/token/`, User info URL `.../application/o/userinfo/`. Existing users link by email. If the token
+fetch fails, add `192.168.4.156 auth.krusnix.net` to `/etc/hosts` in CT 109.
 
 **Jellyfin** (Dashboard → Plugins → Repositories: add `https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/manifest-release/manifest.json`,
 install **SSO Authentication**, restart): Plugins → SSO-Auth → Add provider: name **authentik** (must match),
@@ -83,11 +84,14 @@ OID endpoint = issuer from `[jellyfin]`, client ID/secret, Enabled, Enable autho
 ### Apps behind the gate that have their own login (so you only log in once)
 The gate reaches each app from NPM (192.168.4.156), a local address:
 - **Sonarr, Radarr, Lidarr, Whisparr, Prowlarr** (Settings → General → Security): Authentication **Forms**,
-  Authentication Required **Disabled for Local Addresses**.
+  Authentication Required **Disabled for Local Addresses**. Newer versions then require **Allowed Hosts** (Settings → General → Host),
+  e.g. `sonarr.krusnix.net, 192.168.5.14, localhost, sonarr`; save and restart the app.
 - **Bazarr** (Settings → General → Security): Authentication **None**. **Mylar / LazyLibrarian**: clear the HTTP
   username/password. **Cleanuparr**: turn off its login if it has one.
 - **Tautulli** (Settings → Web Interface): untick **Use Basic Authentication** / clear the password. API key stays.
-- **SABnzbd** (Config → General → Security): clear username and password. API key stays.
+- **SABnzbd** (Config → General → Security): clear username and password. API key stays. Without a password SAB
+  checks the hostname: Config → Special → `host_whitelist` add `sabnzbd.krusnix.net`, save, restart (use the IP to get in).
+- **Bazarr**: clear the Authentication box with its × (no "None" option). **LazyLibrarian**: clear WebServer User and Pass, save, Restart.
 - **qBittorrent**: keep its login. Its API uses the same password, and bypassing it for the proxy would open the
   API to anyone on the LAN. You'll log in twice there.
 

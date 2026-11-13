@@ -104,6 +104,14 @@ SCOPES=$(ak "$AK/propertymappings/provider/scope/?page_size=200" | jq -c '[.resu
   | select((.managed // "") | startswith("goauthentik.io/providers/oauth2/scope-"))
   | select(.scope_name|IN("openid","email","profile","offline_access"))|.pk]')
 [ "$(jq length <<<"$SCOPES")" -ge 3 ] || { echo "Authentik scope mappings (openid/email/profile) not found: $SCOPES"; exit 1; }
+# Authentik's built-in email scope says email_verified=false, so apps like Beszel (PocketBase) and
+# Audiobookshelf won't match the login to an existing account by email. Use our own email mapping instead.
+EMAILMAP=$(ak "$AK/propertymappings/provider/scope/?name=homelab-email-verified" | jq -r '.results[0].pk // empty')
+[ -n "$EMAILMAP" ] || EMAILMAP=$(ak -X POST "$AK/propertymappings/provider/scope/" -d '{"name":"homelab-email-verified",
+  "scope_name":"email","description":"Email address (verified)",
+  "expression":"return {\"email\": request.user.email, \"email_verified\": True}"}' | jq -r .pk)
+DEFEMAIL=$(ak "$AK/propertymappings/provider/scope/?page_size=200" | jq -r '.results[]|select(.managed=="goauthentik.io/providers/oauth2/scope-email")|.pk')
+SCOPES=$(jq -c --arg d "$DEFEMAIL" --arg e "$EMAILMAP" '(map(select(.!=$d)) + [$e]) | unique' <<<"$SCOPES")
 ADMINS=$(ak "$AK/core/groups/?name=$(enc 'authentik Admins')" | jq -r '.results[0].pk // empty')
 [ -n "$ADMINS" ] || { echo "Group 'authentik Admins' not found"; exit 1; }
 
