@@ -522,6 +522,92 @@ dash('homelab-intel-gpu', 'Intel iGPU', [
     graph('Idle time (RC6 sleep state)', [('intel_gpu_rc6_percent', 'idle')], 0, 20, unit='percent', vmax=100),
     graph('Programs using the iGPU', [('intel_gpu_clients', 'clients')], 12, 20, step=True),
 ], span='now-6h')
+
+# ---------- Homelab Overview: one screen, key numbers from every source ----------
+def multistat(title, exprs, x, y, w=8, h=5, unit='short', decimals=0, thresholds=(), vmax=None, orient='auto',
+              base='green', overrides=()):
+    # thresholds: ((value, colour), ...) above `base`; none means always `base` (Grafana's default turns 80+ red)
+    d = {'unit': unit, 'decimals': decimals, 'noValue': '-', 'min': 0,
+         'thresholds': {'mode': 'absolute', 'steps': [{'color': base, 'value': None}] +
+                        [{'color': c, 'value': v} for v, c in thresholds]}}
+    if vmax is not None:
+        d['max'] = vmax
+    return {'type': 'stat', 'title': title, 'datasource': DS, 'gridPos': {'x': x, 'y': y, 'w': w, 'h': h},
+            'targets': [dict(t, instant=True) for t in targets(exprs)],
+            'fieldConfig': {'defaults': d, 'overrides': [
+                {'matcher': {'id': 'byFrameRefID', 'options': ref}, 'properties': props} for ref, props in overrides]},
+            'options': {'reduceOptions': {'calcs': ['lastNotNull'], 'fields': '', 'values': False},
+                        'colorMode': 'value', 'graphMode': 'none', 'textMode': 'value_and_name',
+                        'orientation': orient, 'justifyMode': 'auto'}}
+
+def bars(title, exprs, x, y, w=8, h=9, unit='percent', vmax=100, decimals=0, thresholds=((70, 'orange'), (90, 'red'))):
+    d = {'unit': unit, 'decimals': decimals, 'min': 0, 'noValue': '-',
+         'thresholds': {'mode': 'absolute', 'steps': [{'color': 'green', 'value': None}] +
+                        [{'color': c, 'value': v} for v, c in thresholds]}}
+    if vmax is not None:
+        d['max'] = vmax
+    return {'type': 'bargauge', 'title': title, 'datasource': DS, 'gridPos': {'x': x, 'y': y, 'w': w, 'h': h},
+            'targets': [dict(t, instant=True) for t in targets(exprs)],
+            'fieldConfig': {'defaults': d, 'overrides': []},
+            'options': {'reduceOptions': {'calcs': ['lastNotNull'], 'fields': '', 'values': False},
+                        'orientation': 'horizontal', 'displayMode': 'gradient', 'showUnfilled': True,
+                        'valueMode': 'color', 'namePlacement': 'left', 'sizing': 'auto'}}
+
+LINUX = 'instance=~"homelab1-proxmox|plex-proxmox|unraid-1"'
+IDLE = '100 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100'
+WAN = ('max(rate(node_network_%s_bytes_total{instance="opnsense", device!~"lo.*|enc.*|pflog.*|pfsync.*|ovpn.*|wg.*|tailscale.*"}[5m])) * 8')
+GUEST = '* on (id, instance) group_left (name) pve_guest_info{type="lxc"}'
+def by_host(q):   # adds host="homelab1" / "plex-pve" so duplicate CT names (plex, pihole, pve-ups) can be told apart
+    return ('label_replace(label_replace(%s, "host", "homelab1", "instance", "192.168.4.209"), '
+            '"host", "plex-pve", "instance", "192.168.4.215")' % q)
+dash('homelab-overview', 'Homelab Overview', [
+    # row 1: is anything wrong?
+    multistat('Sources down', [('count(up == 0) or vector(0)', 'down')], 0, 0, w=4, h=4,
+              thresholds=((1, 'red'),)),
+    multistat('UPS', [('network_ups_tools_battery_charge', 'battery'), ('network_ups_tools_ups_load', 'load')],
+              4, 0, w=6, h=4, unit='percent', base='red', thresholds=((30, 'orange'), (60, 'green')),
+              overrides=[('B', [{'id': 'thresholds', 'value': {'mode': 'absolute', 'steps': [
+                  {'color': 'green', 'value': None}, {'color': 'orange', 'value': 60}, {'color': 'red', 'value': 85}]}}])]),
+    multistat('UPS runtime', [('network_ups_tools_battery_runtime', 'on battery')], 10, 0, w=4, h=4, unit='s',
+              base='red', thresholds=((600, 'orange'), (1200, 'green'))),
+    multistat('Plex streams now', [('sum(tautulli_streams) or vector(0)', 'streams'),
+                                    ('sum(tautulli_streams{decision="transcode"}) or vector(0)', 'transcoding')],
+              14, 0, w=5, h=4),
+    multistat('Internet (busiest OPNsense port)', [(WAN % 'receive', 'down'), (WAN % 'transmit', 'up')],
+              19, 0, w=5, h=4, unit='bps', decimals=1),
+    # row 2: hosts
+    bars('Host CPU', [(IDLE, '{{instance}}')],
+         0, 4, w=8, h=7),
+    bars('Host memory used', [('(1 - node_memory_MemAvailable_bytes{%s} / node_memory_MemTotal_bytes{%s}) * 100' % (LINUX, LINUX),
+                               '{{instance}}')], 8, 4, w=8, h=7),
+    bars('Root disk used', [('(1 - node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|rootfs"} / '
+                             'node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|rootfs"}) * 100', '{{instance}}')],
+         16, 4, w=8, h=7, thresholds=((80, 'orange'), (90, 'red'))),
+    # row 3: GPUs and DNS
+    multistat('NVIDIA 3070 Ti', [('nvidia_smi_utilization_gpu_ratio * 100', 'busy %'),
+                                 ('nvidia_smi_encoder_stats_session_count', 'encodes'),
+                                 ('nvidia_smi_temperature_gpu', 'temp °C'),
+                                 ('nvidia_smi_power_draw_watts', 'watts')], 0, 11, w=8, h=5),
+    multistat('Intel iGPU', [('max(intel_gpu_engine_busy_percent{engine=~"Video.*", engine!~"VideoEnhance.*"})', 'video %'),
+                             ('max(intel_gpu_engine_busy_percent{engine=~"Render.*"})', '3D %'),
+                             ('intel_gpu_power_watts{domain="gpu"}', 'watts')], 8, 11, w=8, h=5, decimals=1),
+    multistat('Pi-holes (today)', [('sum(pihole_dns_queries_today)', 'queries'),
+                                   ('sum(pihole_ads_blocked_today)', 'blocked'),
+                                   ('sum(pihole_ads_blocked_today) / sum(pihole_dns_queries_today) * 100', 'blocked share')],
+              16, 11, w=8, h=5, overrides=[('C', [{'id': 'unit', 'value': 'percent'}, {'id': 'decimals', 'value': 1}])]),
+    # row 4: who is busy
+    bars('Busiest CTs: CPU (both hosts)', [(by_host('topk(8, pve_cpu_usage_ratio %s) * 100' % GUEST), '{{name}} · {{host}}')],
+         0, 16, w=8, h=9),
+    bars('Busiest CTs: memory', [(by_host('topk(8, pve_memory_usage_bytes / pve_memory_size_bytes %s) * 100' % GUEST),
+                                  '{{name}} · {{host}}')],
+         8, 16, w=8, h=9),
+    bars('Busiest unraid-1 containers: CPU', [('topk(8, sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[5m])) * 100)', '{{name}}')],
+         16, 16, w=8, h=9, vmax=None, unit='percent', thresholds=((200, 'orange'), (400, 'red'))),
+    # row 5: trends
+    graph('Host CPU, last 24 h', [(IDLE, '{{instance}}')], 0, 25, w=12, h=8, unit='percent', vmax=100),
+    graph('Internet traffic (busiest OPNsense port)', [(WAN % 'receive', 'down'), (WAN % 'transmit', 'up')],
+          12, 25, w=12, h=8, unit='bps'),
+])
 PYEOF
 chown -R grafana:grafana /var/lib/grafana/dashboards
 chown root:grafana /etc/grafana/provisioning/datasources/prometheus.yml /etc/grafana/provisioning/dashboards/homelab.yml
@@ -536,6 +622,24 @@ import json,sys
 for r in sorted(json.load(sys.stdin)["data"]["result"], key=lambda r:(r["metric"]["job"], r["metric"]["instance"])):
     print("    %s  %-10s %s" % (r["value"][1], r["metric"]["job"], r["metric"]["instance"]))'
 echo "  Pi-holes answering: $(curl -fsS http://127.0.0.1:9617/metrics | grep -c '^pihole_status' || true) of 4"
+echo "  Homelab Overview queries with no data:"
+python3 - <<'PYEOF'
+import json, urllib.parse, urllib.request
+d = json.load(open('/var/lib/grafana/dashboards/homelab-overview.json'))
+empty = 0
+for p in d['panels']:
+    for t in p['targets']:
+        q = urllib.parse.urlencode({'query': t['expr'].replace('$__range', '1h')})
+        try:
+            r = json.load(urllib.request.urlopen('http://127.0.0.1:9090/api/v1/query?' + q, timeout=10))
+            n = len(r['data']['result'])
+        except Exception as e:
+            n = 'error %s' % e
+        if n in (0,) or isinstance(n, str):
+            empty += 1
+            print('    %s / %s: %s' % (p['title'], t['legendFormat'] or '-', n or 'no data'))
+print('    none' if not empty else '    (%d)' % empty)
+PYEOF
 echo "  Tautullis (1 = answering):"
 curl -fsS -m 25 http://127.0.0.1:9487/metrics | sed -n 's/^tautulli_up{server="\([^"]*\)"} /    \1 /p'
 EOF
