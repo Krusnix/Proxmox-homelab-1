@@ -116,7 +116,7 @@ cat > "$TMP/services.yaml" <<'EOF'
 - Network:
     - OPNsense:
         icon: opnsense.svg
-        href: https://192.168.4.1
+        href: https://opnsense.krusnix.net
         description: Router, firewall, DHCP
         ping: 192.168.4.1
         widget:
@@ -126,7 +126,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           password: '{{HOMEPAGE_VAR_OPNSENSE_SECRET}}'
     - Pi-hole CT 102:
         icon: pi-hole.svg
-        href: http://192.168.4.145/admin/
+        href: https://pihole.krusnix.net/admin/
         description: 192.168.4.145 (nebula-sync primary)
         siteMonitor: http://192.168.4.145/admin/
         widget:
@@ -136,7 +136,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           key: '{{HOMEPAGE_VAR_PIHOLE_145}}'
     - Pi-hole .48:
         icon: pi-hole.svg
-        href: http://192.168.4.48/admin/
+        href: https://pihole-plex.krusnix.net/admin/
         description: 192.168.4.48 (plex-proxmox CT 102)
         siteMonitor: http://192.168.4.48/admin/
         widget:
@@ -146,7 +146,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           key: '{{HOMEPAGE_VAR_PIHOLE_48}}'
     - Pi-hole Unraid:
         icon: pi-hole.svg
-        href: http://192.168.5.53/admin/
+        href: https://pihole-unraid.krusnix.net/admin/
         description: 192.168.5.53 (Unraid docker)
         siteMonitor: http://192.168.5.53/admin/
         widget:
@@ -156,7 +156,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           key: '{{HOMEPAGE_VAR_PIHOLE_5_53}}'
     - Pi-hole .141:
         icon: pi-hole.svg
-        href: http://192.168.4.141:8080/admin/
+        href: https://pihole-nut.krusnix.net/admin/
         description: 192.168.4.141 (also the NUT server)
         siteMonitor: http://192.168.4.141:8080/admin/
         widget:
@@ -168,7 +168,7 @@ cat > "$TMP/services.yaml" <<'EOF'
 - Proxmox:
     - homelab1-proxmox:
         icon: proxmox.svg
-        href: https://192.168.4.209:8006
+        href: https://pve.krusnix.net
         description: 192.168.4.209
         siteMonitor: https://192.168.4.209:8006
         widget:
@@ -178,7 +178,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           password: '{{HOMEPAGE_VAR_PVE_HOMELAB1}}'
     - plex-proxmox:
         icon: proxmox.svg
-        href: 'https://{{HOMEPAGE_VAR_PLEXPVE_IP}}:8006'
+        href: https://pve-plex.krusnix.net
         description: '{{HOMEPAGE_VAR_PLEXPVE_IP}}'
         siteMonitor: 'https://{{HOMEPAGE_VAR_PLEXPVE_IP}}:8006'
         widget:
@@ -188,7 +188,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           password: '{{HOMEPAGE_VAR_PVE_PLEXPVE}}'
     - UPS:
         icon: nut.svg
-        href: http://192.168.4.205:8080
+        href: https://ups.krusnix.net
         description: CyberPower via PVE-UPS (CT 101) and NUT on .141
         siteMonitor: http://192.168.4.205:8080/api/health
         widget:
@@ -210,14 +210,14 @@ cat > "$TMP/services.yaml" <<'EOF'
               suffix: min
     - Helper scripts:
         icon: proxmox.svg
-        href: http://192.168.4.102:3000
+        href: https://scripts.krusnix.net
         description: pve-scripts-local (CT 100)
         siteMonitor: http://192.168.4.102:3000
 
 - Media (homelab1):
     - Plex:
         icon: plex.svg
-        href: http://192.168.4.120:32400/web
+        href: https://plex.krusnix.net/web
         description: CT 103, 192.168.4.120
         siteMonitor: http://192.168.4.120:32400/identity
         widget:
@@ -226,7 +226,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           key: '{{HOMEPAGE_VAR_PLEX_HOMELAB1}}'
     - Tautulli:
         icon: tautulli.svg
-        href: http://192.168.4.113:8181
+        href: https://tautulli.krusnix.net
         description: CT 106, watches homelab1 Plex
         siteMonitor: http://192.168.4.113:8181
         widget:
@@ -237,7 +237,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           showEpisodeNumber: true
     - Tdarr:
         icon: tdarr.svg
-        href: http://192.168.4.127:8265
+        href: https://tdarr.krusnix.net
         description: CT 104, transcode queue
         siteMonitor: http://192.168.4.127:8265
         widget:
@@ -246,7 +246,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           key: '{{HOMEPAGE_VAR_TDARR}}'
     - Immich:
         icon: immich.svg
-        href: http://192.168.4.163:2283
+        href: https://immich.krusnix.net
         description: CT 105, photos
         siteMonitor: http://192.168.4.163:2283/api/server/ping
         widget:
@@ -256,19 +256,19 @@ cat > "$TMP/services.yaml" <<'EOF'
           version: 2
     - Tunarr:
         icon: tunarr.svg
-        href: http://192.168.4.235:8000
+        href: https://tunarr.krusnix.net
         description: CT 107, live TV channels
         siteMonitor: http://192.168.4.235:8000
     - Kometa:
         icon: kometa.png
-        href: http://192.168.4.213:7171
+        href: https://kometa.krusnix.net
         description: CT 108, collections and overlays (runs 05:00)
         siteMonitor: http://192.168.4.213:7171
 
 - plex-proxmox:
     - Plex:
         icon: plex.svg
-        href: http://192.168.4.49:32400/web
+        href: https://plex-server.krusnix.net/web
         description: plex-proxmox, 192.168.4.49
         siteMonitor: http://192.168.4.49:32400/identity
         widget:
@@ -277,7 +277,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           key: '{{HOMEPAGE_VAR_PLEX_PLEXPVE}}'
     - Tautulli:
         icon: tautulli.svg
-        href: 'http://{{HOMEPAGE_VAR_TAUTULLI2_IP}}:8181'
+        href: https://tautulli-plex.krusnix.net
         description: plex-proxmox CT 105, watches plex-server
         siteMonitor: 'http://{{HOMEPAGE_VAR_TAUTULLI2_IP}}:8181'
         widget:
@@ -288,57 +288,57 @@ cat > "$TMP/services.yaml" <<'EOF'
           showEpisodeNumber: true
     - Kometa:
         icon: kometa.png
-        href: http://192.168.4.109:7171
+        href: https://kometa-plex.krusnix.net
         description: plex-proxmox CT 104
         siteMonitor: http://192.168.4.109:7171
     - PVE-UPS:
         icon: nut.svg
-        href: http://192.168.4.212:8080
+        href: https://ups-plex.krusnix.net
         description: plex-proxmox CT 101 (shuts this host down on low battery)
         siteMonitor: http://192.168.4.212:8080/api/health
     - Helper scripts:
         icon: proxmox.svg
-        href: http://192.168.4.179:3000
+        href: https://scripts-plex.krusnix.net
         description: plex-proxmox CT 100
         siteMonitor: http://192.168.4.179:3000
 
 - unraid-1 Media:
     - Plex:
         icon: plex.svg
-        href: http://192.168.5.14:32400/web
+        href: https://plex-unraid.krusnix.net/web
         description: unraid-1 Plex
         server: unraid-1
         container: Plex-Media-Server
     - Jellyfin:
         icon: jellyfin.svg
-        href: http://192.168.5.14:8096
+        href: https://jellyfin.krusnix.net
         server: unraid-1
         container: Jellyfin
     - Tautulli:
         icon: tautulli.svg
-        href: http://192.168.5.14:8181
+        href: https://tautulli-unraid.krusnix.net
         description: watches unraid-1 Plex
         server: unraid-1
         container: tautulli
     - Seerr:
         icon: seerr.svg
-        href: http://192.168.5.14:5055
+        href: https://seerr.krusnix.net
         description: requests
         server: unraid-1
         container: Seerr
     - Audiobookshelf:
         icon: audiobookshelf.svg
-        href: http://192.168.5.14:13378
+        href: https://audiobookshelf.krusnix.net
         server: unraid-1
         container: audiobookshelf
     - Tunarr:
         icon: tunarr.svg
-        href: http://192.168.5.14:8001
+        href: https://tunarr-unraid.krusnix.net
         server: unraid-1
         container: Tunarr
     - Youtarr:
         icon: youtarr.png
-        href: http://192.168.5.14:3011
+        href: https://youtarr.krusnix.net
         server: unraid-1
         container: Youtarr
     - Kometa:
@@ -355,45 +355,45 @@ cat > "$TMP/services.yaml" <<'EOF'
 - unraid-1 Arrs:
     - Sonarr:
         icon: sonarr.svg
-        href: http://192.168.5.14:8989
+        href: https://sonarr.krusnix.net
         server: unraid-1
         container: sonarr
     - Radarr:
         icon: radarr.svg
-        href: http://192.168.5.14:7878
+        href: https://radarr.krusnix.net
         server: unraid-1
         container: radarr
     - Lidarr:
         icon: lidarr.svg
-        href: http://192.168.5.14:8686
+        href: https://lidarr.krusnix.net
         server: unraid-1
         container: lidarr
     - Whisparr:
         icon: whisparr.svg
-        href: http://192.168.5.14:6969
+        href: https://whisparr.krusnix.net
         server: unraid-1
         container: whisparr
     - Bazarr:
         icon: bazarr.svg
-        href: http://192.168.5.14:6767
+        href: https://bazarr.krusnix.net
         description: subtitles
         server: unraid-1
         container: bazarr
     - Mylar3:
         icon: mylar.png
-        href: http://192.168.5.14:8090
+        href: https://mylar.krusnix.net
         description: comics
         server: unraid-1
         container: mylar3
     - LazyLibrarian:
         icon: lazylibrarian.png
-        href: http://192.168.5.14:5299
+        href: https://lazylibrarian.krusnix.net
         description: books
         server: unraid-1
         container: lazylibrarian
     - Prowlarr:
         icon: prowlarr.svg
-        href: http://192.168.5.14:9696
+        href: https://prowlarr.krusnix.net
         description: indexers
         server: unraid-1
         container: prowlarr
@@ -411,19 +411,19 @@ cat > "$TMP/services.yaml" <<'EOF'
         container: binhex-official-gluetun
     - qBittorrent:
         icon: qbittorrent.svg
-        href: http://192.168.5.14:8080
+        href: https://qbittorrent.krusnix.net
         description: through Gluetun
         server: unraid-1
         container: binhex-qbittorrent
     - SABnzbd:
         icon: sabnzbd.svg
-        href: http://192.168.5.14:8085
+        href: https://sabnzbd.krusnix.net
         description: through Gluetun
         server: unraid-1
         container: sabnzbd
     - Cleanuparr:
         icon: cleanuparr.png
-        href: http://192.168.5.14:11011
+        href: https://cleanuparr.krusnix.net
         server: unraid-1
         container: Cleanuparr
     - cross-seed:
@@ -442,7 +442,7 @@ cat > "$TMP/services.yaml" <<'EOF'
 - Storage:
     - Unraid:
         icon: unraid.svg
-        href: http://192.168.5.14
+        href: https://unraid.krusnix.net
         description: unraid-1, 192.168.5.14 (media share)
         ping: 192.168.5.14
         widget:
@@ -452,14 +452,14 @@ cat > "$TMP/services.yaml" <<'EOF'
           fields: ["status", "cpu", "memoryPercent", "arrayUsedPercent"]
     - TerraMaster:
         icon: terramaster.svg
-        href: http://192.168.4.180:8181
+        href: https://nas.krusnix.net
         description: F4-210, 192.168.4.180 (backups, nas-public)
         ping: 192.168.4.180
 
 - Monitoring:
     - Beszel:
         icon: beszel.svg
-        href: http://192.168.4.217:8090
+        href: https://beszel.krusnix.net
         description: CT 109, CPU, memory, disk
         siteMonitor: http://192.168.4.217:8090
         widget:
@@ -470,7 +470,7 @@ cat > "$TMP/services.yaml" <<'EOF'
           version: 2
     - Uptime Kuma:
         icon: uptime-kuma.svg
-        href: http://192.168.4.134:3001
+        href: https://uptime.krusnix.net
         description: CT 110, up/down checks
         siteMonitor: http://192.168.4.134:3001
         widget:
@@ -479,12 +479,17 @@ cat > "$TMP/services.yaml" <<'EOF'
           slug: homelab
     - Grafana:
         icon: grafana.svg
-        href: http://192.168.4.232:3000
+        href: https://grafana.krusnix.net
         description: CT 112, graphs and 30 days of history
         siteMonitor: http://192.168.4.232:3000
         widget:
           type: prometheus
           url: http://192.168.4.232:9090
+    - Nginx Proxy Manager:
+        icon: nginx-proxy-manager.svg
+        href: https://proxy.krusnix.net
+        description: CT 113, https://<name>.krusnix.net for every UI
+        siteMonitor: http://192.168.4.156:81
     - ntfy:
         icon: ntfy.svg
         href: https://ntfy.sh/homelab1-alerts-3d1ef2b124a1
