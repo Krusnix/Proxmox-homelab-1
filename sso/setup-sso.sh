@@ -152,10 +152,10 @@ oidc() {   # oidc SLUG NAME LAUNCH_URL <<< redirect lines
       --arg k "$CERT" --argjson s "$SCOPES" --argjson r "$uris" \
       '{name:$n,authorization_flow:$a,invalidation_flow:$i,client_type:"confidential",redirect_uris:$r,
         property_mappings:$s,signing_key:(if $k=="" then null else $k end),sub_mode:"hashed_user_id",
-        include_claims_in_id_token:true}')" | jq -r .pk)
+        include_claims_in_id_token:true,grant_types:["authorization_code","refresh_token"]}')" | jq -r .pk)
     echo "  Authentik: OIDC client $slug" >&2
   else
-    ak -X PATCH "$AK/providers/oauth2/$pk/" -d "$(jq -n --argjson r "$uris" --argjson s "$SCOPES" '{redirect_uris:$r,property_mappings:$s}')" >/dev/null
+    ak -X PATCH "$AK/providers/oauth2/$pk/" -d "$(jq -n --argjson r "$uris" --argjson s "$SCOPES" '{redirect_uris:$r,property_mappings:$s,grant_types:["authorization_code","refresh_token"]}')" >/dev/null
   fi
   app "$slug" "$name" "$pk" "$url"
   ak "$AK/providers/oauth2/$pk/" | jq -r --arg s "$slug" --arg i "https://$AUTH/application/o/$slug/" \
