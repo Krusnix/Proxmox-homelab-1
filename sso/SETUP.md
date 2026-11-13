@@ -59,11 +59,11 @@ pveum user add <you>@authentik && pveum acl modify / --users <you>@authentik --r
 ```
 **Grafana**: done by the script. Your SSO user is a new Grafana user (Admin via the group); the old local `admin` still works.
 
-**Immich** (Administration → Settings → Authentication Settings → OAuth): Enable; Issuer URL from `[immich]`; Client ID
-and Secret; Scope `openid email profile`; Button text `Login with Authentik`; Auto register **off** (so only existing
-Immich users can sign in; your Immich account email must match your Authentik email); Mobile redirect URI override
-**on**, `https://immich.krusnix.net/api/oauth/mobile-redirect`. Keep "Password login" enabled. The phone app needs the
-server URL `https://immich.krusnix.net` to use the SSO button.
+**Immich** (Administration → Settings → Authentication Settings → OAuth): Login with OAuth on; issuer_url
+`https://auth.krusnix.net/application/o/immich/`; client_id/secret; leave scope, RS256/none algs and the claim fields at
+their defaults (they only apply to new accounts); end_session_endpoint `https://auth.krusnix.net/application/o/immich/end-session/`;
+Button text `Login with Authentik`; Auto register **off**; Auto launch off; Mobile redirect URI override **off** (Authentik
+accepts `app.immich:///oauth-callback` directly). Keep Password Login enabled. Existing accounts link by matching email.
 
 **Audiobookshelf** (Settings → Authentication → OpenID Connect): Issuer URL from `[audiobookshelf]` → Auto-populate;
 Client ID/Secret; Button text `Login with Authentik`; Match existing users by **username**; Auto register off. Allowed
