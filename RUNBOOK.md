@@ -140,6 +140,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 110 | uptimekuma | 192.168.4.134:3001 (DHCP reserved) | Service up/down checks |
 | 111 | homepage | 192.168.4.126:3000 (DHCP reserved) | Homepage dashboard: every service on both hosts and unraid-1 |
 | 112 | grafana | 192.168.4.232:3000 (DHCP reserved) | Grafana + Prometheus: graphs and 30 days of history |
+| 113 | npm | 192.168.4.156:81 (DHCP reserved) | Nginx Proxy Manager: `https://<name>.krusnix.net` for every web UI, LAN + Tailscale only |
 
 ### CT 102 Pi-hole and nebula-sync
 
@@ -310,6 +311,24 @@ Added 2026-11-13. Grafana at `http://192.168.4.232:3000` graphs both Proxmox hos
 - **Updates:** the helper's `update` covers Grafana and apt covers Prometheus. The three exporters are fixed at the version the script downloaded; re-run the script to pull the latest.
 - **Homepage:** Grafana tile in the Monitoring group, showing Prometheus targets up/down.
 - If a Pi-hole password changes, re-run the script (it reads them from nebula-sync again).
+
+### CT 113 Nginx Proxy Manager (reverse proxy, `*.krusnix.net`)
+
+Added 2026-11-13. Every web UI on homelab1, plex-proxmox, unraid-1 and the network gear has an HTTPS name such as `https://immich.krusnix.net`, `https://pve.krusnix.net` or `https://sonarr.krusnix.net`, with a real Let's Encrypt wildcard certificate. **LAN and Tailscale only:** no port forwards and no public DNS records. The Pi-holes answer the names (tailnet DNS already points at Pi-hole .145, and OPNsense routes 192.168.4.0/23 to the tailnet). The full name → app list is at the top of [`reverse-proxy/setup-proxy.sh`](reverse-proxy/setup-proxy.sh).
+
+- **Domain:** `krusnix.net`, registered at Cloudflare Registrar (renews about $11/yr). Cloudflare is only the DNS host for the certificate challenge; the zone has no records.
+- **Cloudflare API token:** `npm-homelab1` (My Profile → API Tokens), Zone → DNS → Edit on krusnix.net only, no expiry, no IP filter. NPM uses it to renew. The token itself is in Trent's password manager and in NPM; it is not stored here.
+- **Install:** helper script `ct/nginxproxymanager.sh`, Advanced: CT 113, hostname `npm`, defaults, DHCP. Reserved in OPNsense at .156 (the Pi-hole records point at this address). Admin UI `http://192.168.4.156:81` (v2.17.0 at install); first login creates the admin user.
+- **Certificate:** Certificates → Add Certificate → Let's Encrypt via DNS: `krusnix.net` + `*.krusnix.net`, ECDSA 256, provider Cloudflare, credentials `dns_cloudflare_api_token = <token>`. Auto-renews every ~60 days (first one valid to 2027-02-11).
+- **Names:** on homelab1-proxmox, run
+  ```bash
+  DOMAIN=krusnix.net NPM_IP=192.168.4.156 NPM_USER='<npm login>' NPM_PASS='<npm password>' bash setup-proxy.sh
+  DOMAIN=krusnix.net NPM_IP=192.168.4.156 bash setup-proxy.sh --check
+  ```
+  It adds a Pi-hole local DNS record per name on CT 102 via the Pi-hole API (password from `/etc/nebula-sync.env`; nebula-sync copies `dns.hosts` to the other three Pi-holes within the hour), a proxy host per name in NPM via its API (wildcard cert, Force SSL, HTTP/2, websockets on), and `HOMEPAGE_ALLOWED_HOSTS` in CT 111 `/etc/homepage/vars.env` so Homepage answers on `home.krusnix.net`. Safe to re-run: it only adds what's missing and brings the advanced config of existing hosts in line. To add a service, add a line to the list and re-run. `--check` requests every name through NPM and should print `0 failing` (all 46 passed 2026-11-13).
+- **Per-host extras the script sets:** Immich gets `client_max_body_size 50000M` and 600 s timeouts (large phone uploads). The four Pi-holes get `location = / { return 301 /admin/; }` because Pi-hole v6 returns 404 on `/` for a hostname it doesn't know.
+- **Apps that check the hostname**, if a browser shows "DNS rebind" / "host not allowed": OPNsense → System → Settings → Administration → Alternate Hostnames `opnsense.krusnix.net`; qBittorrent → WebUI → Server domains; SABnzbd → Config → Special → `host_whitelist`; Unraid → Management Access → Use SSL/TLS must not be Strict.
+- **Rebuild:** reinstall CT 113 at .156, recreate the certificate, re-run the script. The Pi-hole records survive in Pi-hole's Teleporter / nebula-sync.
 
 ### ntfy alerts: Proxmox, backups, UPS
 
