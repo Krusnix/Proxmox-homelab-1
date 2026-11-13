@@ -88,7 +88,9 @@ The gate reaches each app from NPM (192.168.4.156), a local address:
 - **Bazarr** (Settings → General → Security): Authentication **None**. **Mylar / LazyLibrarian**: clear the HTTP
   username/password. **Cleanuparr**: turn off its login if it has one.
 - **Tautulli** (Settings → Web Interface): untick **Use Basic Authentication** / clear the password. API key stays.
-- **SABnzbd** (Config → General → Security): clear username and password. API key stays.
+- **SABnzbd** (Config → General → Security): clear username and password. API key stays. Without a password SAB
+  checks the hostname: Config → Special → `host_whitelist` add `sabnzbd.krusnix.net`, save, restart (use the IP to get in).
+- **Bazarr**: clear the Authentication box with its × (no "None" option). **LazyLibrarian**: clear WebServer User and Pass, save, Restart.
 - **qBittorrent**: keep its login. Its API uses the same password, and bypassing it for the proxy would open the
   API to anyone on the LAN. You'll log in twice there.
 
