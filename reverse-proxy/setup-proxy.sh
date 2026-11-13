@@ -15,6 +15,7 @@ CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
 # name  scheme  host  port  [immich|pihole]
 HOSTS=$(cat <<HOSTS_EOF
 proxy          http  $NPM_IP       81
+auth           http  192.168.4.229 9000
 pve            https 192.168.4.209 8006
 plex           http  192.168.4.120 32400
 tautulli       http  192.168.4.113 8181
@@ -123,6 +124,8 @@ while read -r n scheme host port extra; do
   if grep -qxF "$d" <<<"$existing"; then
     # existing host: only bring its advanced config up to date
     read -r id cur < <(jq -r --arg d "$d" '.[]|select(.domain_names|index($d))|"\(.id) \(.advanced_config|@base64)"' <<<"$hostlist" | head -1)
+    # hosts behind Authentik keep the forward-auth config that sso/setup-sso.sh wrote
+    if base64 -d <<<"$cur" | grep -q 'outpost.goauthentik.io'; then continue; fi
     if [ "$(base64 -d <<<"$cur")" != "$adv" ]; then
       npm -X PUT "$NPM/nginx/proxy-hosts/$id" -d "$(jq -n --arg a "$adv" '{advanced_config:$a}')" >/dev/null
       echo "  NPM: $d advanced config updated"

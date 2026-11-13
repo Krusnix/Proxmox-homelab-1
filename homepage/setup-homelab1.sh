@@ -490,6 +490,15 @@ cat > "$TMP/services.yaml" <<'EOF'
         href: https://proxy.krusnix.net
         description: CT 113, https://<name>.krusnix.net for every UI
         siteMonitor: http://192.168.4.156:81
+    - Authentik:
+        icon: authentik.svg
+        href: https://auth.krusnix.net
+        description: CT 114, single sign-on
+        siteMonitor: http://192.168.4.229:9000/-/health/live/
+        widget:
+          type: authentik
+          url: http://192.168.4.229:9000
+          key: '{{HOMEPAGE_VAR_AUTHENTIK_KEY}}'
     - ntfy:
         icon: ntfy.svg
         href: https://ntfy.sh/homelab1-alerts-3d1ef2b124a1

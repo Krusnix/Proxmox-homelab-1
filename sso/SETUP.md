@@ -1,0 +1,110 @@
+# Single sign-on (Authentik) for the homelab
+
+Result: one login at `https://auth.krusnix.net` for the homelab web UIs, LAN and Tailscale only like the proxy.
+- **Own SSO button** ("Sign in with authentik"): Proxmox (both hosts), Grafana, Immich, Audiobookshelf, Beszel, Jellyfin.
+  Each keeps its local login as a fallback.
+- **Authentik login page in front** (NPM forward-auth): Tdarr, Tunarr (both), Kometa (both), Prometheus, the UPS and
+  helper-scripts UIs (both hosts), Homepage, Sonarr, Radarr, Lidarr, Whisparr, Bazarr, Mylar, LazyLibrarian, Prowlarr,
+  the three Tautullis, qBittorrent, SABnzbd, Cleanuparr. `/api` paths skip the gate on the apps that have an API
+  (they still need the app's API key), so phone apps and app-to-app links keep working.
+- **Left alone**: Plex (all three), Seerr (family logs in with Plex), NPM, OPNsense, the Pi-holes, the TerraMaster,
+  Uptime Kuma, Youtarr, Unraid. They keep their own logins, so a broken Authentik can't lock you out of the tools that fix it.
+- Only the `authentik Admins` group can use any of it. Family never needs an Authentik account.
+- **If Authentik is down**: the gated names stop loading, but every app still works at its `IP:port`.
+
+## 1. Install Authentik (helper script, on homelab1-proxmox)
+- Helper script **authentik** (`ct/authentik.sh`), Advanced: **CT 114**, hostname `authentik`, DHCP. Keep the
+  defaults (4 cores, 8 GB RAM, 16 GB disk); it builds from source, which takes 15-30 min and needs the RAM.
+- Reserve its IP in OPNsense. (Done 2026-11-13: **192.168.4.229**.)
+- The first start runs database migrations ("Server is starting up") for a few minutes.
+- Once everything below works: `pct set 114 --memory 4096`. Updates (`update` in the CT console) rebuild from
+  source, so raise it back to 8192 before updating.
+
+## 2. Create the admin account and an API token
+- Open `http://192.168.4.229:9000/if/flow/initial-setup/` (trailing slash matters). Set the `akadmin` email and
+  password, and **Base URL `https://auth.krusnix.net`**.
+- **Admin interface → Directory → Users → Create**: your everyday user (e.g. `trent`), then **Groups** tab → add to
+  `authentik Admins`. Set its password (user page → Set password). `akadmin` is the break-glass account.
+- **Directory → Tokens and App passwords → Create**: identifier `homelab-setup`, user: yours, intent **API Token**,
+  Expiring off. Copy the key (eye icon / Copy).
+
+## 3. Run the scripts (on homelab1-proxmox, as root)
+```
+# copy the new reverse-proxy/setup-proxy.sh and sso/setup-sso.sh to /root first, then:
+cd /root
+DOMAIN=krusnix.net NPM_IP=192.168.4.156 NPM_USER='<npm email>' NPM_PASS='<npm password>' bash setup-proxy.sh
+DOMAIN=krusnix.net NPM_IP=192.168.4.156 NPM_USER='<npm email>' NPM_PASS='<npm password>' \
+  AK_TOKEN='<token from step 2>' AK_USER='<your authentik username>' bash setup-sso.sh
+DOMAIN=krusnix.net NPM_IP=192.168.4.156 bash setup-sso.sh --check
+```
+`setup-proxy.sh` adds `auth.krusnix.net` (Pi-hole record + NPM host). `setup-sso.sh` does the rest:
+the forward-auth provider + embedded outpost, the OIDC clients, ntfy alerts, the Homepage widget key, the NPM gate on
+each gated name, the Proxmox realm on this host and Grafana's login button. Both are safe to re-run, and re-running
+`setup-proxy.sh` later no longer wipes the gate. Client IDs/secrets land in `/root/sso-clients.txt`.
+
+Then open `https://auth.krusnix.net` and log in as your user: you'll see an app tile per OIDC app.
+
+## 4. One-time settings in the apps (values from `/root/sso-clients.txt`)
+Issuer / "OpenID configuration URL" for app `<slug>` is `https://auth.krusnix.net/application/o/<slug>/`
+(discovery: add `.well-known/openid-configuration`).
+
+**Proxmox, homelab1**: done by the script. Login screen → Realm **Authentik SSO** → Login with OpenID.
+**Proxmox, plex-proxmox**: run there (replace the two values from the `[proxmox-plex]` block):
+```
+grep -q auth.krusnix.net /etc/hosts || echo '192.168.4.156 auth.krusnix.net' >> /etc/hosts
+pveum realm add authentik --type openid --issuer-url https://auth.krusnix.net/application/o/proxmox-plex/ \
+  --client-id '<client id>' --client-key '<client secret>' --username-claim username \
+  --scopes 'openid email profile' --autocreate 0 --comment 'Authentik SSO'
+pveum user add <you>@authentik && pveum acl modify / --users <you>@authentik --roles Administrator
+```
+**Grafana**: done by the script. Your SSO user is a new Grafana user (Admin via the group); the old local `admin` still works.
+
+**Immich** (Administration → Settings → Authentication Settings → OAuth): Enable; Issuer URL from `[immich]`; Client ID
+and Secret; Scope `openid email profile`; Button text `Login with Authentik`; Auto register **off** (so only existing
+Immich users can sign in; your Immich account email must match your Authentik email); Mobile redirect URI override
+**on**, `https://immich.krusnix.net/api/oauth/mobile-redirect`. Keep "Password login" enabled. The phone app needs the
+server URL `https://immich.krusnix.net` to use the SSO button.
+
+**Audiobookshelf** (Settings → Authentication → OpenID Connect): Issuer URL from `[audiobookshelf]` → Auto-populate;
+Client ID/Secret; Button text `Login with Authentik`; Match existing users by **username**; Auto register off. Allowed
+mobile redirect URIs: `audiobookshelf://oauth`. Keep Password Authentication on. Unraid's Docker containers must resolve
+`auth.krusnix.net`: if ABS shows "issuer discovery failed", add `--add-host=auth.krusnix.net:192.168.4.156` to the
+container's Extra Parameters.
+
+**Beszel** (`https://beszel.krusnix.net/_/` → Settings → Auth providers → OpenID Connect): Client ID/Secret; Display
+name `Authentik`; Auth URL `https://auth.krusnix.net/application/o/authorize/`, Token URL `.../application/o/token/`,
+User info URL `.../application/o/userinfo/`. Then link your existing Beszel user from its profile, or match by email.
+
+**Jellyfin** (Dashboard → Plugins → Repositories: add `https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/manifest-release/manifest.json`,
+install **SSO Authentication**, restart): Plugins → SSO-Auth → Add provider: name **authentik** (must match),
+OID endpoint = issuer from `[jellyfin]`, client ID/secret, Enabled, Enable authorization by plugin. Login at
+`https://jellyfin.krusnix.net/sso/OID/start/authentik`. Jellyfin apps on TV/phone keep their normal login.
+
+### Apps behind the gate that have their own login (so you only log in once)
+The gate reaches each app from NPM (192.168.4.156), a local address:
+- **Sonarr, Radarr, Lidarr, Whisparr, Prowlarr** (Settings → General → Security): Authentication **Forms**,
+  Authentication Required **Disabled for Local Addresses**.
+- **Bazarr** (Settings → General → Security): Authentication **None**. **Mylar / LazyLibrarian**: clear the HTTP
+  username/password. **Cleanuparr**: turn off its login if it has one.
+- **Tautulli** (Settings → Web Interface): untick **Use Basic Authentication** / clear the password. API key stays.
+- **SABnzbd** (Config → General → Security): clear username and password. API key stays.
+- **qBittorrent**: keep its login. Its API uses the same password, and bypassing it for the proxy would open the
+  API to anyone on the LAN. You'll log in twice there.
+
+Trade-off: those apps no longer ask for a password when opened by bare `IP:port` on the LAN. Their APIs still need keys.
+
+## 5. Monitoring
+- Uptime Kuma: add an **HTTP(s)** monitor `Authentik`, URL `http://192.168.4.229:9000/-/health/live/`, interval 60.
+  Add a second one, `https://tdarr.krusnix.net/`, expecting status **302** (Accepted Status Codes: `300-399`):
+  that catches the gate breaking.
+- ntfy (by the script): Authentik's own errors, configuration problems, update notices, and **failed logins** go to the
+  phone topic.
+- Homepage: Authentik tile with login/user counts (run `homepage/setup-homelab1.sh` again to add the tile).
+
+## Undo / break glass
+- One app: remove its Advanced config in NPM (Hosts → Proxy Hosts → ⋮ → Edit → Advanced), or run
+  `bash reverse-proxy/setup-proxy.sh` after deleting the `outpost.goauthentik.io` text.
+- Everything: every app still answers on `IP:port`. Proxmox/Grafana/Immich/ABS/Beszel local logins still work.
+- Locked out of Authentik: log in as `akadmin` at `http://192.168.4.229:9000`. If that's lost too, Authentik can
+  print a one-time recovery link (`create_recovery_key`); the exact command for this from-source install hasn't
+  been tested yet, so check it before you need it.
