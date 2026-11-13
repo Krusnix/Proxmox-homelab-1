@@ -83,7 +83,8 @@ OID endpoint = issuer from `[jellyfin]`, client ID/secret, Enabled, Enable autho
 ### Apps behind the gate that have their own login (so you only log in once)
 The gate reaches each app from NPM (192.168.4.156), a local address:
 - **Sonarr, Radarr, Lidarr, Whisparr, Prowlarr** (Settings → General → Security): Authentication **Forms**,
-  Authentication Required **Disabled for Local Addresses**.
+  Authentication Required **Disabled for Local Addresses**. Newer versions then require **Allowed Hosts** (Settings → General → Host),
+  e.g. `sonarr.krusnix.net, 192.168.5.14, localhost, sonarr`; save and restart the app.
 - **Bazarr** (Settings → General → Security): Authentication **None**. **Mylar / LazyLibrarian**: clear the HTTP
   username/password. **Cleanuparr**: turn off its login if it has one.
 - **Tautulli** (Settings → Web Interface): untick **Use Basic Authentication** / clear the password. API key stays.
