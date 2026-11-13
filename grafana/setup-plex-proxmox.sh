@@ -1,8 +1,8 @@
 #!/bin/bash
-# Grafana + Prometheus: run on plex-proxmox as root. Installs node exporter (:9100) and
-# (plus a firewall rule for it from the Grafana CT, 192.168.4.232 or $1, if the PVE firewall
-# is on) and adds a read-only Proxmox API token (prometheus@pve!metrics, PVEAuditor; re-running
-# replaces it). Prints one command to paste on homelab1-proxmox.
+# Grafana + Prometheus: run on plex-proxmox as root. Installs node exporter (:9100), allows
+# the Grafana CT (192.168.4.232, or $1) to reach it if the Proxmox firewall is on, and adds a
+# read-only Proxmox API token (prometheus@pve!metrics, PVEAuditor; re-running replaces it).
+# Prints one command to paste on homelab1-proxmox.
 set -euo pipefail
 apt-get update -qq || true
 DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 install -y -qq --no-install-recommends prometheus-node-exporter >/dev/null
