@@ -218,8 +218,12 @@ if pct status 111 2>/dev/null | grep -q running && ! pct exec 111 -- grep -q '^H
   ak "$AK/core/tokens/homepage/" >/dev/null 2>&1 || ak -X POST "$AK/core/tokens/" -d "$(jq -n --argjson u "$ME" \
     '{identifier:"homepage",intent:"api",user:$u,expiring:false,description:"Homepage widget"}')" >/dev/null
   KEY=$(ak "$AK/core/tokens/homepage/view_key/" | jq -r .key)
-  pct exec 111 -- homepage-setvar AUTHENTIK_KEY "$KEY" >/dev/null && pct exec 111 -- homepage-setvar --restart >/dev/null
-  echo "  Homepage: Authentik widget key set"
+  if pct exec 111 -- /usr/local/bin/homepage-setvar AUTHENTIK_KEY "$KEY" >/dev/null &&
+     pct exec 111 -- /usr/local/bin/homepage-setvar --restart >/dev/null; then
+    echo "  Homepage: Authentik widget key set"
+  else
+    echo "  Homepage: couldn't set the Authentik key (run homepage/setup-homelab1.sh first, then re-run this)"
+  fi
 fi
 
 ### 2. NPM: Authentik login in front of the gated names
