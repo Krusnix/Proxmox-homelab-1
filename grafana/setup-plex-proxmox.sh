@@ -16,5 +16,5 @@ command -v nvidia-smi >/dev/null && echo "Note: this host has an NVIDIA GPU; tel
 echo
 echo "Paste this on homelab1-proxmox (112 = the Grafana CT):"
 echo "------------------------------------------------------------"
-echo "pct exec 112 -- pve-exporter-conf plex '$PVE_SECRET'"
+echo "pct exec 112 -- /usr/local/bin/pve-exporter-conf plex '$PVE_SECRET'"
 echo "------------------------------------------------------------"
