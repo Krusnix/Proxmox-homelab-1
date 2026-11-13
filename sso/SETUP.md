@@ -71,9 +71,10 @@ mobile redirect URIs: `audiobookshelf://oauth`. Keep Password Authentication on.
 `auth.krusnix.net`: if ABS shows "issuer discovery failed", add `--add-host=auth.krusnix.net:192.168.4.156` to the
 container's Extra Parameters.
 
-**Beszel** (`https://beszel.krusnix.net/_/` → Settings → Auth providers → OpenID Connect): Client ID/Secret; Display
-name `Authentik`; Auth URL `https://auth.krusnix.net/application/o/authorize/`, Token URL `.../application/o/token/`,
-User info URL `.../application/o/userinfo/`. Then link your existing Beszel user from its profile, or match by email.
+**Beszel** (PocketBase admin `https://beszel.krusnix.net/_/`, superuser login → Collections → users → ⚙ → OAuth2 → on →
+Add provider → OpenID Connect): Client ID/Secret; Display name `Authentik`; Auth URL `https://auth.krusnix.net/application/o/authorize/`,
+Token URL `.../application/o/token/`, User info URL `.../application/o/userinfo/`. Existing users link by email. If the token
+fetch fails, add `192.168.4.156 auth.krusnix.net` to `/etc/hosts` in CT 109.
 
 **Jellyfin** (Dashboard → Plugins → Repositories: add `https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/manifest-release/manifest.json`,
 install **SSO Authentication**, restart): Plugins → SSO-Auth → Add provider: name **authentik** (must match),
