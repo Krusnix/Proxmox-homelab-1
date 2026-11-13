@@ -240,7 +240,7 @@ providers:
     options: {path: /var/lib/grafana/dashboards}
 EOS
 echo "  Dashboards:"
-for d in 1860:node 10347:proxmox 14574:nvidia 19308:ups 10176:pihole; do
+for d in 1860:node 4260:opnsense 10347:proxmox 14574:nvidia 19308:ups 10176:pihole; do
   id=${d%%:*}; f=/var/lib/grafana/dashboards/${d##*:}.json
   if curl -fsSL -o "$f.new" "https://grafana.com/api/dashboards/$id/revisions/latest/download"; then
     sed -E 's/\$\{DS_[A-Za-z0-9_-]+\}/prometheus/g' "$f.new" > "$f"; rm -f "$f.new"
