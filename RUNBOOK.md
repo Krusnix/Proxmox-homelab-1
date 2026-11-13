@@ -129,7 +129,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 108 | kometa | 192.168.4.213 (DHCP reserved) | Plex collections/overlays, no GPU or shares |
 | 109 | beszel | 192.168.4.217:8090 (DHCP reserved) | Resource monitoring hub (CPU/memory/disk alerts) |
 | 110 | uptimekuma | 192.168.4.134:3001 (DHCP reserved) | Service up/down checks |
-| homepage | homepage | 192.168.4.126:3000 (DHCP reserved) | Homepage dashboard: every service on both hosts and unraid-1 |
+| 111 | homepage | 192.168.4.126:3000 (DHCP reserved) | Homepage dashboard: every service on both hosts and unraid-1 |
 
 ### CT 102 Pi-hole and nebula-sync
 
@@ -248,7 +248,7 @@ Added 2026-11-11 after Tdarr (CT 104) ran out of memory unnoticed. Both installe
   - DNS monitors (resolve google.com): Pi-holes 192.168.4.145, 192.168.4.48, 192.168.5.53, 192.168.4.141.
   - Ping monitors: OPNsense 192.168.4.1, Unraid 192.168.5.14, TerraMaster 192.168.4.180, pve-ups 192.168.4.205.
 
-### Homepage dashboard
+### CT 111 Homepage dashboard
 
 Added 2026-11-12. One page at `http://192.168.4.126:3000` with a tile for every service on homelab1-proxmox, plex-proxmox, unraid-1 (including its Docker containers), the Pi-holes, OPNsense, the NAS boxes, the UPS and ntfy. Tiles open each web UI in a new tab, show a status dot, and most show live numbers.
 
