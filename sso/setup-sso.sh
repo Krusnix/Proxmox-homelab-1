@@ -218,7 +218,7 @@ for r in default-notify-exception default-notify-configuration-error default-not
 done
 
 # Read-only-ish token for the Homepage widget
-if pct status 111 2>/dev/null | grep -q running && ! pct exec 111 -- grep -q '^HOMEPAGE_VAR_AUTHENTIK_KEY=' /etc/homepage/vars.env 2>/dev/null; then
+if pct status 111 2>/dev/null | grep -q running && ! pct exec 111 -- grep -q "^HOMEPAGE_VAR_AUTHENTIK_KEY='..*'" /etc/homepage/vars.env 2>/dev/null; then
   ME=$(ak "$AK/core/users/me/" | jq -r .user.pk)
   ak "$AK/core/tokens/homepage/" >/dev/null 2>&1 || ak -X POST "$AK/core/tokens/" -d "$(jq -n --argjson u "$ME" \
     '{identifier:"homepage",intent:"api",user:$u,expiring:false,description:"Homepage widget"}')" >/dev/null
