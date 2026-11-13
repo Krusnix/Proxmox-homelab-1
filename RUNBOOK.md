@@ -82,6 +82,11 @@ chmod 755 /usr/local/bin/vzdump-rsync.sh
 pvesh create /cluster/backup --id nightly-cts --schedule "01:00" --all 1 --storage backup-local \
   --mode snapshot --compress zstd --prune-backups keep-daily=3 --notes-template "{{guestname}}" \
   --script /usr/local/bin/vzdump-rsync.sh --notification-mode notification-system --enabled 1
+
+# Added 2026-11-13: skip Plex's rebuildable previews and cache (paths only exist in CT 103).
+pvesh set /cluster/backup/nightly-cts \
+  --exclude-path "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Media/?*" \
+  --exclude-path "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Cache/?*"
 ```
 
 The guards in the script stop `--delete` from wiping the TerraMaster copy if the local volume is missing or empty. A failed or skipped sync sends its own ntfy alert and also makes the job fail, so it shows up in the task log and the Proxmox notification too (you may get two pings for one failure). Alerts were added 2026-11-11; see [ntfy alerts](#ntfy-alerts-proxmox-backups-ups).
@@ -141,8 +146,10 @@ All installed with the Proxmox community helper scripts, then configured by hand
 
 ### CT 103 Plex
 
-- 32 GB disk. `mp0` unraid-data → `/unraid`, `mp1` nas-public → `/nas`. `plex` user in `nasshare`.
+- 82 GB disk (grown from 32 GB on 2026-11-13 with `pct resize 103 rootfs +50G`, then `pct fstrim 103`). `mp0` unraid-data → `/unraid`, `mp1` nas-public → `/nas`. `plex` user in `nasshare`.
 - Both GPUs passed through; NVIDIA 620.70.06 userspace installed with `--no-kernel-module`.
+- Analysis settings kept on purpose (2026-11-13): video previews, chapter thumbnails, loudness, ad markers and voice activity on "as soon as possible"; intro/credits on the default (scheduled). ~92% of the library is AV1, so previews come in at ~25 files (~300 MiB) a day; the full library would need ~100–170 GiB. 82 GB leaves ~63 GB free, roughly 200 days. Check `df -h /` in CT 103 now and then (the hourly ntfy disk check alerts at 85%); grow again in steps, since a CT disk can't be shrunk.
+- Nightly backup skips Plex's `Media/` (previews) and `Cache/` (see Backups), which cut CT 103's backup from 10.5 to 7.3 GB. After a restore, Plex regenerates previews.
 - Remote access: OPNsense NAT WAN:32420 → 192.168.4.120:32400. If remote access breaks with a cert error, stop Plex, move `Cache/cert-v2.p12` aside, restart.
 
 ### CT 104 Tdarr
