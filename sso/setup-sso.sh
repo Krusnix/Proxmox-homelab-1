@@ -258,7 +258,7 @@ location ~ $re {
   proxy_set_header Upgrade \$http_upgrade;
   proxy_set_header Connection \$http_connection;
   proxy_http_version 1.1;
-  include conf.d/include/proxy.conf;
+  include /etc/nginx/conf.d/include/proxy.conf;
 }
 EOF
   cat <<EOF
@@ -274,7 +274,7 @@ location / {
   proxy_set_header Upgrade \$http_upgrade;
   proxy_set_header Connection \$http_connection;
   proxy_http_version 1.1;
-  include conf.d/include/proxy.conf;
+  include /etc/nginx/conf.d/include/proxy.conf;
 }
 location /outpost.goauthentik.io {
   proxy_pass http://$AK_IP:9000/outpost.goauthentik.io;
