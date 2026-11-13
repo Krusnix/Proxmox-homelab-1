@@ -459,6 +459,11 @@ def graph(title, exprs, x, y, w=12, h=8, unit='short', stack=False, step=False, 
         'stacking': {'mode': 'normal' if stack else 'none', 'group': 'A'}}}
     if vmax is not None:
         d['max'] = vmax
+    elif unit == 'short':      # counts: whole numbers, and a 0-4 scale when nothing is playing
+        d['decimals'] = 0
+        d['custom']['axisSoftMax'] = 4
+    elif unit == 'bps':
+        d['custom']['axisSoftMax'] = 10000000
     return {'type': 'timeseries', 'title': title, 'datasource': DS, 'gridPos': {'x': x, 'y': y, 'w': w, 'h': h},
             'targets': targets(exprs), 'fieldConfig': {'defaults': d, 'overrides': []},
             'options': {'legend': {'displayMode': 'list', 'placement': 'bottom', 'showLegend': True},
