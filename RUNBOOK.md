@@ -28,6 +28,10 @@ Last updated 2026-11-13. Covers the Proxmox host rebuilt on 2026-11-08 and the L
 
 Both are mounted with `uid=100000,gid=110000`, mode 0775. Inside unprivileged LXCs, create group `nasshare` with gid **10000** (maps to host gid 110000) and add the service user to it.
 
+Because of `uid=100000`, every file on these mounts is owned by root inside the CTs. Service users can create and write files through `nasshare`, but they can't set a file's timestamps (`utime` → `EPERM`), because Linux only lets a file's owner do that. Apps that need to set timestamps need their own mount owned by their user (see CT 105 Immich below).
+
+The SMB password for `krusnix` lives in `/etc/pve/priv/storage/unraid-data.pw` (one line). If the Unraid password changes, the running mount keeps working until the next reboot or remount, then fails. Save the new password with `pvesm set unraid-data --username krusnix --password`. Without `--username`, it says "ignoring password parameter" but still overwrites the file. Or write the file directly, then check it with `smbclient //192.168.5.14/data -U krusnix --password="$(cat /etc/pve/priv/storage/unraid-data.pw)" -m SMB3 -c ls`. Updated 2026-11-13 after the password had been changed on Unraid.
+
 ### Backups (nightly vzdump + rsync to TerraMaster)
 
 Set up 2026-11-10. Each container is backed up to a local volume every night, and a hook script then copies that folder to the TerraMaster over rsync. Nothing is written over the SMB share.
@@ -176,6 +180,7 @@ unprivileged: 1
 features: nesting=1,keyctl=1
 rootfs: local-lvm:vm-105-disk-0,size=50G
 mp0: /mnt/pve/unraid-data,mp=/unraid
+mp1: /mnt/immich-data,mp=/immich-data   # own CIFS mount owned by immich, added 2026-11-13
 dev0: /dev/dri/renderD128,gid=992   # Intel render
 dev1: /dev/dri/card1,gid=44         # Intel card
 dev2: /dev/dri/renderD129,gid=992   # NVIDIA render
@@ -191,7 +196,16 @@ onboot: 1
 2. Add `mp0` unraid-data → `/unraid` and the device lines above.
 3. In the CT: `groupadd -g 10000 nasshare`; add `immich` to `video`, `render`, `nasshare`.
 4. Install NVIDIA 620.70.06 userspace in the CT from `/root/nvidia` with `--no-kernel-module`.
-5. Storage layout. `/opt/immich/.env` keeps `IMMICH_MEDIA_LOCATION=/opt/immich/upload`. Inside it, `library`, `upload`, `profile` and `backups` are symlinks to `/unraid/media/pictures/immich/<same name>` (each folder needs its `.immich` marker file). `thumbs` and `encoded-video` stay on local disk.
+5. Storage layout. `/opt/immich/.env` keeps `IMMICH_MEDIA_LOCATION=/opt/immich/upload`. Inside it, `library`, `upload`, `profile` and `backups` are symlinks to `/immich-data/<same name>` (each folder needs its `.immich` marker file). `thumbs` and `encoded-video` stay on local disk.
+   - `/immich-data` is a separate host CIFS mount of the same Unraid folder (`/unraid/media/pictures/immich`), owned by host uid **100999** (= `immich`, uid 999 in the CT). Immich sets each uploaded file's date with `utime`, which only the owner can do. On the shared `/unraid` mount (owned by root) every phone upload failed with `EPERM: operation not permitted, utime` in `/var/log/immich/web.log`, and the app showed "Failed to upload asset". Fixed 2026-11-13.
+   - Host `/etc/fstab` line (credentials file `/root/.smb-unraid-immich`, mode 600, with `username=krusnix` and `password=...` lines copied from `/etc/pve/priv/storage/unraid-data.pw`):
+
+     ```
+     //192.168.5.14/data/media/pictures/immich /mnt/immich-data cifs credentials=/root/.smb-unraid-immich,vers=3.1.1,uid=100999,forceuid,gid=110000,forcegid,file_mode=0775,dir_mode=0775,soft,nounix,_netdev,nofail 0 0
+     ```
+
+   - Then `mount /mnt/immich-data`, `pct stop 105`, `pct set 105 -mp1 /mnt/immich-data,mp=/immich-data`, `pct start 105`, and `ln -sfn /immich-data/<name> /opt/immich/upload/<name>` for the four folders. Test as immich: `touch -d 2020-01-01 /opt/immich/upload/upload/.t` must succeed. The whole fix is scripted in `fix-upload-mount.sh` (project files `immich-uploads/`).
+   - If the Unraid password changes, update `/root/.smb-unraid-immich` too.
 6. `pct reboot 105`, then check `nvidia-smi` as the immich user, `ls -l /dev/dri`, and `http://<ip>:2283/api/server/ping` → `pong`.
 
 **Web UI settings:**
