@@ -928,3 +928,42 @@ exit 0
 Services → Monit → Service Settings → `LoginCheck`: Type Custom, Path `/root/login-check.sh`, Tests `GatewayAlert` (OPNsense won't save a Custom check without a test; it never fires because the script always exits 0).
 
 **plex-proxmox Plex (192.168.4.49).** Tautulli watches one server, so plex-proxmox has its own Tautulli: **CT 105 on plex-proxmox** (helper script, DHCP reserved in OPNsense, MAC `BC:24:11:6B:9E:4B`, web UI on port 8181), connected to plex-server. It has the same two ntfy agents as homelab1's CT 106 (outages priority 5: Plex Server Down/Back Up, Remote Access Down/Back Up; streams priority 2: Playback Start), with subjects prefixed `plex-server:`. Both agents' test notifications worked 2026-11-12. Not to be confused with homelab1's CT 105 (Immich).
+
+## plex-proxmox host: CPU fixes
+
+plex-proxmox (192.168.4.215) only has 4 cores, so background loops show up fast. Found 2026-11-13 after the host sat at ~99% CPU from 21:32 the night before.
+
+**pve-auto-hook (community dependency-check add-on).** It ships `pve-auto-hook.path` with `PathExistsGlob=/etc/pve/qemu-server/*.conf` and `/etc/pve/lxc/*.conf`. Guest configs always exist, so systemd re-ran the oneshot `pve-auto-hook.service` (`/usr/local/bin/pve-apply-hookscript.sh`) back to back forever (~950 runs, ~0.8 core, constant `pct`/`qm` churn). The path unit is disabled and replaced by a 15-minute timer:
+
+```bash
+systemctl disable --now pve-auto-hook.path
+systemctl stop pve-auto-hook.service
+cat > /etc/systemd/system/pve-auto-hook.timer <<'UNIT'
+[Unit]
+Description=Apply dependency-check hookscript to new guests every 15 min
+
+[Timer]
+OnBootSec=5min
+OnCalendar=*:0/15
+Unit=pve-auto-hook.service
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload && systemctl enable --now pve-auto-hook.timer
+```
+
+New guests get the `local:snippets/dependency-check.sh` hookscript within 15 minutes instead of instantly. If the add-on is reinstalled or updated, check that it hasn't re-enabled `pve-auto-hook.path`.
+
+**iptag (community IP-Tag add-on).** `LOOP_INTERVAL` in `/opt/iptag/iptag.conf` raised from 300 to 1800 (backup `iptag.conf.bak-20261113`), then `systemctl restart iptag`. Each pass runs `pct exec <id> -- ip -4 addr show` on every CT.
+
+**ping-instances (community monitor-all add-on).** Left as is. It only watches guests tagged `mon-restart`, and none are.
+
+**Plex (CT 103 on plex-proxmox, data in `/srv/plex`).** Video previews, chapter thumbnails, loudness analysis, intro and credits detection are all set to "as soon as possible", so they run outside the 23:00 to 02:00 Butler window and use about two cores while working through the library. Kept that way on purpose for now (2026-11-13); switch them to "as a scheduled task" in Settings > Library if the host needs the CPU back.
+
+Undo:
+
+```bash
+systemctl disable --now pve-auto-hook.timer && systemctl enable --now pve-auto-hook.path
+cp -a /opt/iptag/iptag.conf.bak-20261113 /opt/iptag/iptag.conf && systemctl restart iptag
+```
