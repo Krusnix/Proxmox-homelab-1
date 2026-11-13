@@ -462,6 +462,8 @@ def graph(title, exprs, x, y, w=12, h=8, unit='short', stack=False, step=False, 
     elif unit == 'short':      # counts: whole numbers, and a 0-4 scale when nothing is playing
         d['decimals'] = 0
         d['custom']['axisSoftMax'] = 4
+    elif unit == 'hertz':
+        d['custom']['axisSoftMax'] = 1500000000
     elif unit == 'bps':
         d['custom']['axisSoftMax'] = 10000000
     return {'type': 'timeseries', 'title': title, 'datasource': DS, 'gridPos': {'x': x, 'y': y, 'w': w, 'h': h},
@@ -513,8 +515,10 @@ dash('homelab-intel-gpu', 'Intel iGPU', [
     stat('Programs using the iGPU', 'intel_gpu_clients', 18, 0, w=6),
     graph('Engine load (Video = decode/encode, VideoEnhance = scaling/tone mapping)', [(B, '{{engine}}')],
           0, 4, w=24, unit='percent', vmax=100),
-    graph('Power', [('intel_gpu_power_watts', '{{domain}}')], 0, 12, unit='watt'),
-    graph('Clock speed', [('intel_gpu_frequency_mhz * 1000000', '{{type}}')], 12, 12, unit='hertz'),
+    graph('Power (package = whole CPU chip, gpu = graphics part only)',
+          [('intel_gpu_power_watts{domain="gpu"}', 'gpu'), ('intel_gpu_power_watts{domain="package"}', 'package (whole CPU)')],
+          0, 12, unit='watt'),
+    graph('Clock speed (0 when idle)', [('intel_gpu_frequency_mhz * 1000000', '{{type}}')], 12, 12, unit='hertz'),
     graph('Idle time (RC6 sleep state)', [('intel_gpu_rc6_percent', 'idle')], 0, 20, unit='percent', vmax=100),
     graph('Programs using the iGPU', [('intel_gpu_clients', 'clients')], 12, 20, step=True),
 ], span='now-6h')
@@ -549,6 +553,7 @@ echo "Grafana:    http://$IP:3000   (first login admin / admin, it asks for a ne
 echo "Prometheus: http://$IP:9090/targets"
 echo "CT $CT, MAC $MAC: reserve $IP in OPNsense."
 echo "Intel iGPU engines reporting: $(curl -fsS http://127.0.0.1:9100/metrics | grep -c '^intel_gpu_engine_busy_percent' || true)"
-echo "plex-proxmox, opnsense and unraid-1 show 0 until their steps in SETUP.md are done."
-echo "Unraid's Tautulli (key under Tautulli > Settings > Web Interface > API key):"
-echo "  pct exec $CT -- /usr/local/bin/tautulli-exporter-add unraid-1 http://192.168.5.14:8181 'API-KEY'"
+echo "Any 0 above: see SETUP.md (plex-proxmox, OPNsense and unraid-1 each need a step of their own)."
+grep -q "^unraid-1|" <(pct exec $CT -- cat /etc/tautulli-exporter.conf) || {
+  echo "Unraid's Tautulli isn't added yet (key: grep api_key /mnt/user/appdata/tautulli/config.ini on Unraid):"
+  echo "  pct exec $CT -- /usr/local/bin/tautulli-exporter-add unraid-1 http://192.168.5.14:8181 'API-KEY'"; }
