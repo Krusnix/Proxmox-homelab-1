@@ -87,6 +87,10 @@ ensure_host() {   # ensure_host [CTID]
 }
 ensure_host
 for ct in 105 112; do pct status $ct 2>/dev/null | grep -q running && ensure_host $ct; done
+# push the auth record to the other three Pi-holes now instead of within the hour
+pct exec 102 -- test -f /etc/nebula-sync.env 2>/dev/null &&
+  pct exec 102 -- systemd-run --wait -q -P -p EnvironmentFile=/etc/nebula-sync.env /usr/local/bin/nebula-sync run >/dev/null 2>&1 &&
+  echo "  Pi-holes: synced (auth.$DOMAIN on all four)" || true
 curl -fsS -m 10 -o /dev/null "https://$AUTH/-/health/live/" || {
   echo "https://$AUTH isn't answering through the proxy. Run reverse-proxy/setup-proxy.sh first."; exit 1; }
 
