@@ -141,6 +141,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 111 | homepage | 192.168.4.126:3000 (DHCP reserved) | Homepage dashboard: every service on both hosts and unraid-1 |
 | 112 | grafana | 192.168.4.232:3000 (DHCP reserved) | Grafana + Prometheus: graphs and 30 days of history |
 | 113 | npm | 192.168.4.156:81 (DHCP reserved) | Nginx Proxy Manager: `https://<name>.krusnix.net` for every web UI, LAN + Tailscale only |
+| 114 | authentik | 192.168.4.229:9000 (DHCP reserved) | Authentik single sign-on at `https://auth.krusnix.net` |
 
 ### CT 102 Pi-hole and nebula-sync
 
@@ -329,6 +330,20 @@ Added 2026-11-13. Every web UI on homelab1, plex-proxmox, unraid-1 and the netwo
 - **Per-host extras the script sets:** Immich gets `client_max_body_size 50000M` and 600 s timeouts (large phone uploads). The four Pi-holes get `location = / { return 301 /admin/; }` because Pi-hole v6 returns 404 on `/` for a hostname it doesn't know.
 - **Apps that check the hostname** (OPNsense alternate hostname set 2026-11-13), if a browser shows "DNS rebind" / "host not allowed": OPNsense → System → Settings → Administration → Alternate Hostnames `opnsense.krusnix.net`; qBittorrent → WebUI → Server domains; SABnzbd → Config → Special → `host_whitelist`; Unraid → Management Access → Use SSL/TLS must not be Strict.
 - **Rebuild:** reinstall CT 113 at .156, recreate the certificate, re-run the script. The Pi-hole records survive in Pi-hole's Teleporter / nebula-sync.
+
+### CT 114 Authentik (single sign-on)
+
+Added 2026-11-13. One login at `https://auth.krusnix.net` for the admin web UIs. Full steps, per-app settings and break-glass notes: [`sso/SETUP.md`](sso/SETUP.md); automation: [`sso/setup-sso.sh`](sso/setup-sso.sh).
+
+- **Install:** helper script `ct/authentik.sh`, Advanced: CT 114, hostname `authentik`, defaults (4 cores, 8 GB, 16 GB; it builds from source, so updates need the 8 GB too), DHCP reserved at .229. Web on `:9000` (HTTP) and `:9443`. Postgres 17 in the CT. Base URL `https://auth.krusnix.net`. `akadmin` is break-glass; Trent's own user is in `authentik Admins`.
+- **Who:** admin only. Every Authentik application is bound to the `authentik Admins` group. Family uses Seerr with their Plex logins and never needs an Authentik account.
+- **Own SSO button (OIDC):** Proxmox homelab1 (realm `authentik`, set by the script) and plex-proxmox (by hand), Grafana (CT 112 `/etc/grafana/sso.env` + drop-in, set by the script), Immich, Audiobookshelf, Beszel, Jellyfin (SSO plugin). Local logins stay on as fallback. Client IDs/secrets: `/root/sso-clients.txt` on homelab1 (regenerate by re-running the script).
+- **Forward-auth in NPM** (embedded outpost, domain mode, cookie on `krusnix.net`, 24 h sessions): the names in the `GATED` list at the top of `setup-sso.sh`. `/api` (plus `/feed`, `/ping` on the *arrs, and `/<id>/api|download` on Prowlarr) skips the gate; the app's API key still applies. Apps behind the gate with their own login are set to "Disabled for Local Addresses" / no login, except qBittorrent.
+- **Not gated:** Plex x3, Seerr, NPM, OPNsense, Pi-holes, TerraMaster, Uptime Kuma, Youtarr, Unraid.
+- **`setup-proxy.sh` interplay:** it adds `auth` (→ .229:9000) and leaves any host whose advanced config contains `outpost.goauthentik.io` alone, so re-running it doesn't remove the gate.
+- **Hosts file:** homelab1, CT 105 and CT 112 (and plex-proxmox) get `192.168.4.156 auth.krusnix.net` in `/etc/hosts` so the OIDC back-channel doesn't depend on Pi-hole.
+- **Alerts:** Authentik notification transport `ntfy` (webhook to `https://ntfy.sh/`, body mapping `ntfy-homelab`) on the built-in exception / configuration-error / update rules plus `ntfy-login-failed`. Uptime Kuma: `/-/health/live/` and a 302 check on `https://tdarr.krusnix.net/`. Homepage tile with the `authentik` widget (`HOMEPAGE_VAR_AUTHENTIK_KEY`, token `homepage`).
+- **If Authentik is down:** gated names fail, every app still works on `IP:port`.
 
 ### ntfy alerts: Proxmox, backups, UPS
 
