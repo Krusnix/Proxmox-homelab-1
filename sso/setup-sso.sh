@@ -104,9 +104,10 @@ AUTHZ=$(flow default-provider-authorization-implicit-consent)
 INVAL=$(flow default-provider-invalidation-flow)
 [ -n "$AUTHZ" ] && [ -n "$INVAL" ] || { echo "Default Authentik flows not found"; exit 1; }
 CERT=$(ak "$AK/crypto/certificatekeypairs/?has_key=true&name=$(enc 'authentik Self-signed Certificate')" | jq -r '.results[0].pk // empty')
-SCOPES=$(ak "$AK/propertymappings/provider/scope/?page_size=100" | jq -c '[.results[]|select(.managed|IN(
-  "goauthentik.io/providers/oauth2/scope-openid","goauthentik.io/providers/oauth2/scope-email",
-  "goauthentik.io/providers/oauth2/scope-profile","goauthentik.io/providers/oauth2/scope-offline_access"))|.pk]')
+SCOPES=$(ak "$AK/propertymappings/provider/scope/?page_size=200" | jq -c '[.results[]
+  | select((.managed // "") | startswith("goauthentik.io/providers/oauth2/scope-"))
+  | select(.scope_name|IN("openid","email","profile","offline_access"))|.pk]')
+[ "$(jq length <<<"$SCOPES")" -ge 3 ] || { echo "Authentik scope mappings (openid/email/profile) not found: $SCOPES"; exit 1; }
 ADMINS=$(ak "$AK/core/groups/?name=$(enc 'authentik Admins')" | jq -r '.results[0].pk // empty')
 [ -n "$ADMINS" ] || { echo "Group 'authentik Admins' not found"; exit 1; }
 
@@ -154,7 +155,7 @@ oidc() {   # oidc SLUG NAME LAUNCH_URL <<< redirect lines
         include_claims_in_id_token:true}')" | jq -r .pk)
     echo "  Authentik: OIDC client $slug" >&2
   else
-    ak -X PATCH "$AK/providers/oauth2/$pk/" -d "$(jq -n --argjson r "$uris" '{redirect_uris:$r}')" >/dev/null
+    ak -X PATCH "$AK/providers/oauth2/$pk/" -d "$(jq -n --argjson r "$uris" --argjson s "$SCOPES" '{redirect_uris:$r,property_mappings:$s}')" >/dev/null
   fi
   app "$slug" "$name" "$pk" "$url"
   ak "$AK/providers/oauth2/$pk/" | jq -r --arg s "$slug" --arg i "https://$AUTH/application/o/$slug/" \
