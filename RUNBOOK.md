@@ -134,7 +134,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 104 | tdarr | 192.168.4.127:8265 | Both GPUs, /unraid + /nas |
 | 105 | immich | 192.168.4.163:2283 (DHCP reserved) | Both GPUs, /unraid |
 | 106 | tautulli | 192.168.4.113:8181 (DHCP reserved) | Plex stats, no GPU or shares |
-| 107 | tunarr | 192.168.4.235:8000 | Live TV channels for Plex, both GPUs |
+| 107 | tunarr | 192.168.4.235:8000 | Live TV channels for Plex, both GPUs, 3 GiB RAM / 16 GB disk |
 | 108 | kometa | 192.168.4.213 (DHCP reserved) | Plex collections/overlays, no GPU or shares |
 | 109 | beszel | 192.168.4.217:8090 (DHCP reserved) | Resource monitoring hub (CPU/memory/disk alerts) |
 | 110 | uptimekuma | 192.168.4.134:3001 (DHCP reserved) | Service up/down checks |
@@ -242,6 +242,18 @@ Installed 2026-11-10 with the Tunarr helper script (Tunarr 2026.11.2), hardware 
 - net0: vmbr0, DHCP, MAC `BC:24:11:03:6F:D4`, IP 192.168.4.235. Reserve it in OPNsense.
 - Web UI: `http://192.168.4.235:8000` (redirects to `/web`). Service: `systemctl status tunarr`. Binary: `/opt/tunarr/tunarr`.
 - Plex: Settings → Media Sources → add Plex (sign in), server 192.168.4.120:32400. Then add Tunarr as a DVR tuner in Plex Live TV.
+- **Sizing (changed 2026-11-14):** 2 cores, **3 GiB RAM, 1 GiB swap, 16 GB rootfs**. The helper's defaults (1 GiB RAM, 512 MiB swap, 5 GB disk) are too small: Tunarr indexes every connected Plex library into a bundled Meilisearch (`/root/.local/share/tunarr/data.ms`, ~1 GB index with 3 Plex sources) plus a SQLite `db.db` (~400 MB) and a subtitle cache (`cache/subtitles`, ~335 MB). That filled the disk to 97% and Tunarr + Meilisearch (~770 MB RSS) filled RAM and swap, with an OOM kill. Both grow with the libraries, so watch disk if more sources are added.
+  ```bash
+  pct resize 107 rootfs 16G
+  pct set 107 -memory 3072 -swap 1024
+  pct exec 107 -- apt-get clean
+  pct exec 107 -- bash -c 'mkdir -p /etc/systemd/journald.conf.d && printf "[Journal]\nSystemMaxUse=50M\n" > /etc/systemd/journald.conf.d/size.conf && systemctl restart systemd-journald'
+  pct reboot 107
+  ```
+- **Meilisearch temp files:** `/tmp` in the CT is a tmpfs (RAM). Meilisearch writes indexing temp files there (`/tmp/.tmpXXXXXX`, 448 MB + 81 MB seen 2026-11-14), and they were left behind and swapped out, which is what filled swap. A drop-in points Tunarr (and the Meilisearch it starts) at `/var/tmp` on disk instead:
+  ```bash
+  pct exec 107 -- bash -c 'mkdir -p /etc/systemd/system/tunarr.service.d && printf "[Service]\nEnvironment=TMPDIR=/var/tmp\n" > /etc/systemd/system/tunarr.service.d/tmpdir.conf && systemctl daemon-reload && systemctl restart tunarr'
+  ```
 - **Install quirks:** the helper script failed at `mv tunarr* tunarr` (the file already had that name) and would have failed again fetching a `gpl-7.1` ffmpeg. The rest was finished by hand: ErsatzTV-ffmpeg `ffmpeg-n8.1.2-etv.8-linux64-gpl-8.1.tar.xz` (SHA256 checked), linked to `/usr/bin/ffmpeg` and `/usr/bin/ffprobe` (no ffplay), and the upstream `tunarr.service` enabled. The helper's update command may not recognize this ffmpeg build, so check ffmpeg after updating.
 
 ### CT 108 Kometa
