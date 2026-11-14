@@ -189,6 +189,9 @@ EOF
 oidc beszel "Beszel" "https://beszel.$DOMAIN" <<EOF
 strict https://beszel.$DOMAIN/api/oauth2-redirect
 EOF
+oidc cleanuparr "Cleanuparr" "https://cleanuparr.$DOMAIN" <<EOF
+regex ^https://cleanuparr\.$D/.*$
+EOF
 oidc jellyfin "Jellyfin" "https://jellyfin.$DOMAIN" <<EOF
 regex ^https://jellyfin\.$D/sso/OID/(redirect|r)/authentik$
 EOF
