@@ -250,6 +250,10 @@ Installed 2026-11-10 with the Tunarr helper script (Tunarr 2026.11.2), hardware 
   pct exec 107 -- bash -c 'mkdir -p /etc/systemd/journald.conf.d && printf "[Journal]\nSystemMaxUse=50M\n" > /etc/systemd/journald.conf.d/size.conf && systemctl restart systemd-journald'
   pct reboot 107
   ```
+- **Meilisearch temp files:** `/tmp` in the CT is a tmpfs (RAM). Meilisearch writes indexing temp files there (`/tmp/.tmpXXXXXX`, 448 MB + 81 MB seen 2026-11-14), and they were left behind and swapped out, which is what filled swap. A drop-in points Tunarr (and the Meilisearch it starts) at `/var/tmp` on disk instead:
+  ```bash
+  pct exec 107 -- bash -c 'mkdir -p /etc/systemd/system/tunarr.service.d && printf "[Service]\nEnvironment=TMPDIR=/var/tmp\n" > /etc/systemd/system/tunarr.service.d/tmpdir.conf && systemctl daemon-reload && systemctl restart tunarr'
+  ```
 - **Install quirks:** the helper script failed at `mv tunarr* tunarr` (the file already had that name) and would have failed again fetching a `gpl-7.1` ffmpeg. The rest was finished by hand: ErsatzTV-ffmpeg `ffmpeg-n8.1.2-etv.8-linux64-gpl-8.1.tar.xz` (SHA256 checked), linked to `/usr/bin/ffmpeg` and `/usr/bin/ffprobe` (no ffplay), and the upstream `tunarr.service` enabled. The helper's update command may not recognize this ffmpeg build, so check ffmpeg after updating.
 
 ### CT 108 Kometa
