@@ -497,6 +497,7 @@ cat > "$TMP/services.yaml" <<'EOF'
         siteMonitor: http://192.168.4.229:9000/-/health/live/
         widget:
           type: authentik
+          version: 2
           url: http://192.168.4.229:9000
           key: '{{HOMEPAGE_VAR_AUTHENTIK_KEY}}'
     - ntfy:
