@@ -142,6 +142,7 @@ All installed with the Proxmox community helper scripts, then configured by hand
 | 112 | grafana | 192.168.4.232:3000 (DHCP reserved) | Grafana + Prometheus: graphs and 30 days of history |
 | 113 | npm | 192.168.4.156:81 (DHCP reserved) | Nginx Proxy Manager: `https://<name>.krusnix.net` for every web UI, LAN + Tailscale only |
 | 114 | authentik | 192.168.4.229:9000 (DHCP reserved) | Authentik single sign-on at `https://auth.krusnix.net` |
+| 115 | cloudflared | DHCP (reserve in OPNsense) | Cloudflare Tunnel: `https://seerr.krusnix.net` on the internet, Seerr only |
 
 ### CT 102 Pi-hole and nebula-sync
 
@@ -315,9 +316,9 @@ Added 2026-11-13. Grafana at `http://192.168.4.232:3000` graphs both Proxmox hos
 
 ### CT 113 Nginx Proxy Manager (reverse proxy, `*.krusnix.net`)
 
-Added 2026-11-13. Every web UI on homelab1, plex-proxmox, unraid-1 and the network gear has an HTTPS name such as `https://immich.krusnix.net`, `https://pve.krusnix.net` or `https://sonarr.krusnix.net`, with a real Let's Encrypt wildcard certificate. **LAN and Tailscale only:** no port forwards and no public DNS records. The Pi-holes answer the names (tailnet DNS already points at Pi-hole .145, and OPNsense routes 192.168.4.0/23 to the tailnet). The full name → app list is at the top of [`reverse-proxy/setup-proxy.sh`](reverse-proxy/setup-proxy.sh).
+Added 2026-11-13. Every web UI on homelab1, plex-proxmox, unraid-1 and the network gear has an HTTPS name such as `https://immich.krusnix.net`, `https://pve.krusnix.net` or `https://sonarr.krusnix.net`, with a real Let's Encrypt wildcard certificate. **LAN and Tailscale only:** no port forwards and no public DNS records (the one exception is Seerr, published by CT 115's Cloudflare Tunnel, not through NPM). The Pi-holes answer the names (tailnet DNS already points at Pi-hole .145, and OPNsense routes 192.168.4.0/23 to the tailnet). The full name → app list is at the top of [`reverse-proxy/setup-proxy.sh`](reverse-proxy/setup-proxy.sh).
 
-- **Domain:** `krusnix.net`, registered at Cloudflare Registrar (renews about $11/yr). Cloudflare is only the DNS host for the certificate challenge; the zone has no records.
+- **Domain:** `krusnix.net`, registered at Cloudflare Registrar (renews about $11/yr). Cloudflare is the DNS host for the certificate challenge. The zone's only record is `seerr` (proxied CNAME to the CT 115 tunnel, created by the tunnel); never add others.
 - **Cloudflare API token:** `npm-homelab1` (My Profile → API Tokens), Zone → DNS → Edit on krusnix.net only, no expiry, no IP filter. NPM uses it to renew. The token itself is in Trent's password manager and in NPM; it is not stored here.
 - **Install:** helper script `ct/nginxproxymanager.sh`, Advanced: CT 113, hostname `npm`, defaults, DHCP. Reserved in OPNsense at .156 (the Pi-hole records point at this address). Admin UI `http://192.168.4.156:81` (v2.17.0 at install); first login creates the admin user.
 - **Certificate:** Certificates → Add Certificate → Let's Encrypt via DNS: `krusnix.net` + `*.krusnix.net`, ECDSA 256, provider Cloudflare, credentials `dns_cloudflare_api_token = <token>`. Auto-renews every ~60 days (first one valid to 2027-02-11).
@@ -339,11 +340,23 @@ Added 2026-11-13. One login at `https://auth.krusnix.net` for the admin web UIs.
 - **Who:** admin only. Every Authentik application is bound to the `authentik Admins` group. Family uses Seerr with their Plex logins and never needs an Authentik account.
 - **Own SSO button (OIDC):** Proxmox homelab1 (realm `authentik`, set by the script) and plex-proxmox (by hand), Grafana (CT 112 `/etc/grafana/sso.env` + drop-in, set by the script), Immich, Audiobookshelf, Beszel, Jellyfin (SSO plugin). Local logins stay on as fallback. Client IDs/secrets: `/root/sso-clients.txt` on homelab1 (regenerate by re-running the script).
 - **Forward-auth in NPM** (embedded outpost, domain mode, cookie on `krusnix.net`, 24 h sessions): the names in the `GATED` list at the top of `setup-sso.sh`. `/api` (plus `/feed`, `/ping` on the *arrs, and `/<id>/api|download` on Prowlarr) skips the gate; the app's API key still applies. Apps behind the gate with their own login are set to "Disabled for Local Addresses" / no login, except qBittorrent.
-- **Not gated:** Plex x3, Seerr, NPM, OPNsense, Pi-holes, TerraMaster, Uptime Kuma, Youtarr, Unraid.
+- **Not gated:** Plex x3, Seerr (public via CT 115, Plex login), NPM, OPNsense, Pi-holes, TerraMaster, Uptime Kuma, Youtarr, Unraid.
 - **`setup-proxy.sh` interplay:** it adds `auth` (→ .229:9000) and leaves any host whose advanced config contains `outpost.goauthentik.io` alone, so re-running it doesn't remove the gate.
 - **Hosts file:** homelab1, CT 105 and CT 112 (and plex-proxmox) get `192.168.4.156 auth.krusnix.net` in `/etc/hosts` so the OIDC back-channel doesn't depend on Pi-hole.
 - **Alerts:** Authentik notification transport `ntfy` (webhook to `https://ntfy.sh/`, body mapping `ntfy-homelab`) on the built-in exception / configuration-error / update rules plus `ntfy-login-failed`. Uptime Kuma: `/-/health/live/` and a 302 check on `https://tdarr.krusnix.net/`. Homepage tile with the `authentik` widget (`HOMEPAGE_VAR_AUTHENTIK_KEY`, token `homepage`).
 - **If Authentik is down:** gated names fail, every app still works on `IP:port`.
+
+### CT 115 Cloudflare Tunnel (Seerr on the internet)
+
+Added 2026-11-14. Trent's one exception to "LAN and Tailscale only": `https://seerr.krusnix.net` works from anywhere so family and friends can make requests without Tailscale. **Nothing else is published.** Full steps, tests and undo: [`seerr-public/SETUP.md`](seerr-public/SETUP.md).
+
+- **Path:** visitor → Cloudflare → tunnel `homelab1-seerr` (outbound from CT 115) → `http://192.168.5.14:5055` (Seerr on Unraid). No OPNsense port forward; NPM is not in the internet path. At home and on Tailscale the Pi-hole record still sends `seerr.krusnix.net` to NPM, so the same URL works everywhere.
+- **Install:** helper script `ct/cloudflared.sh`, Advanced: CT 115, hostname `cloudflared`, defaults (1 core, 512 MB, 2 GB), DHCP reserved in OPNsense. Tunnel is remote-managed: created in Zero Trust → Networks → Tunnels, joined with `cloudflared service install <token>` (the token lives in `/etc/systemd/system/cloudflared.service`; if it leaks, Refresh token on the tunnel page and re-run the install line). Public hostname `seerr.krusnix.net` → HTTP `192.168.5.14:5055` is the tunnel's only route. Updates come from Cloudflare's apt repo (weekly update check covers it, or the CT's `update`).
+- **Login:** Seerr's Sign in with Plex only (local sign-in off). No Authentik or Cloudflare Access in front: only people Trent shares Plex with can log in, and a second gate would need Authentik accounts for the family. Seerr: Application URL `https://seerr.krusnix.net`, Proxy Support on.
+- **Cloudflare rules (krusnix.net zone):** WAF custom rule `seerr-country` blocks `seerr.krusnix.net` outside the US; rate limiting rule `seerr-login` blocks an IP for 10 s after 20 requests in 10 s to `/api/v1/auth*`.
+- **Health:** drop-in `/etc/systemd/system/cloudflared.service.d/metrics.conf` sets `TUNNEL_METRICS=0.0.0.0:20241`; Uptime Kuma checks `http://<CT 115>:20241/ready` (200 = connected) and alerts via ntfy. If the main WAN drops, the tunnel reconnects over the Verizon backup when that's up.
+- **Rebuild:** reinstall CT 115 and re-run the install line from the tunnel's page in Zero Trust (the route, DNS record and WAF rules live at Cloudflare and survive), then re-add the metrics drop-in.
+- **Undo:** delete the tunnel in Zero Trust, delete the `seerr` DNS record, `pct destroy 115`.
 
 ### ntfy alerts: Proxmox, backups, UPS
 
