@@ -103,7 +103,7 @@ Trade-off: those apps no longer ask for a password when opened by bare `IP:port`
 
 ## 5. Monitoring
 - Uptime Kuma: add an **HTTP(s)** monitor `Authentik`, URL `http://192.168.4.229:9000/-/health/live/`, interval 60.
-  Add a second one, `https://tdarr.krusnix.net/`, expecting status **302** (Accepted Status Codes: `300-399`):
+  Add a second one, `https://tdarr.krusnix.net/`, expecting status **302** (Advanced: **Max. Redirects `0`**, Accepted Status Codes `300-399`; with redirects on it follows to the login page and sees 200):
   that catches the gate breaking.
 - ntfy (by the script): Authentik's own errors, configuration problems, update notices, and **failed logins** go to the
   phone topic.
