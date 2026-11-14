@@ -118,7 +118,8 @@ ADMINS=$(ak "$AK/core/groups/?name=$(enc 'authentik Admins')" | jq -r '.results[
 # app SLUG NAME PROVIDER_PK LAUNCH_URL: application + "admins only" binding
 app() {
   local id
-  id=$(ak "$AK/core/applications/?slug=$1" | jq -r '.results[0].pk // empty')
+  # the plain list is filtered to apps the token's user can open (and cached), so ask for the full list
+  id=$(ak "$AK/core/applications/?superuser_full_list=true&page_size=500" | jq -r --arg s "$1" '.results[]|select(.slug==$s)|.pk' | head -1)
   if [ -z "$id" ]; then
     id=$(ak -X POST "$AK/core/applications/" -d "$(jq -n --arg s "$1" --arg n "$2" --argjson p "$3" --arg u "$4" \
       '{slug:$s,name:$n,provider:$p,meta_launch_url:$u,policy_engine_mode:"any"}')" | jq -r .pk)
@@ -188,6 +189,9 @@ strict audiobookshelf://oauth
 EOF
 oidc beszel "Beszel" "https://beszel.$DOMAIN" <<EOF
 strict https://beszel.$DOMAIN/api/oauth2-redirect
+EOF
+oidc cleanuparr "Cleanuparr" "https://cleanuparr.$DOMAIN" <<EOF
+regex ^https://cleanuparr\.$D/.*$
 EOF
 oidc jellyfin "Jellyfin" "https://jellyfin.$DOMAIN" <<EOF
 regex ^https://jellyfin\.$D/sso/OID/(redirect|r)/authentik$

@@ -76,9 +76,13 @@ Add provider → OpenID Connect): Client ID/Secret; Display name `Authentik`; Au
 Token URL `.../application/o/token/`, User info URL `.../application/o/userinfo/`. Existing users link by email. If the token
 fetch fails, add `192.168.4.156 auth.krusnix.net` to `/etc/hosts` in CT 109.
 
+**Cleanuparr** (Settings → Account → OIDC / SSO): Enable; Provider Name `Authentik`; Issuer URL from `[cleanuparr]`;
+Client ID/Secret; Scopes `openid profile email`; Redirect URL `https://cleanuparr.krusnix.net`. Save OIDC Settings.
+
 **Jellyfin** (Dashboard → Plugins → Repositories: add `https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/manifest-release/manifest.json`,
 install **SSO Authentication**, restart): Plugins → SSO-Auth → Add provider: name **authentik** (must match),
-OID endpoint = issuer from `[jellyfin]`, client ID/secret, Enabled, Enable authorization by plugin. Login at
+OID endpoint = issuer from `[jellyfin]`, client ID/secret, Enabled, Enable authorization by plugin, **Scheme Override `https`**
+(NPM talks to Jellyfin over http, so without it the plugin sends an http redirect URI and Authentik shows "Redirect URI Error"). Login at
 `https://jellyfin.krusnix.net/sso/OID/start/authentik`. Jellyfin apps on TV/phone keep their normal login.
 
 ### Apps behind the gate that have their own login (so you only log in once)
